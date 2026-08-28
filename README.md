@@ -35,10 +35,12 @@ container. Ela não é uma fronteira forte de segurança contra código hostil.
 - MCP Streamable HTTP com o SDK Go oficial;
 - navegação, snapshots compactos, metadados Open Graph, busca e espera;
 - clique e digitação de texto não secreto;
+- hover, scroll, teclas permitidas e seleção em `<select>` nativo;
 - abas persistentes e contextos privados efêmeros;
 - screenshot inline via MCP Apps UI e exportação de PDF;
 - bloqueio de senha, IPs locais/reservados, DNS misto, redirects e subrequests;
 - takeover humano para senha, OTP, passkey, MFA ou CAPTCHA;
+- broker opcional de logins salvos por origem, sem expor usuário ou senha ao MCP;
 - `prepare -> confirmação -> commit` para publicar, enviar, comprar ou excluir;
 - OAuth 2.1 para produção, com RFC 9728, JWT/JWKS, audience, subject allowlist e
   scopes progressivos por tool;
@@ -93,6 +95,18 @@ Quando aparecer senha, passkey, OTP, CAPTCHA ou MFA:
 Nunca envie credenciais pelo chat. O takeover é reservado a autenticação; menus
 e elementos difíceis continuam sendo controlados pelas tools do navegador.
 Login concluído não aprova publicação, compra, exclusão ou outra ação externa.
+
+## Login salvo sem revelar a senha ao modelo
+
+Para contas dedicadas e de baixo privilégio, o gateway pode ler usuário e senha
+de Docker secrets. O modelo vê somente o label da conta e a origem HTTPS exata,
+e o envio exige `prepare -> confirmação -> commit`. MFA, passkey e CAPTCHA
+continuam no takeover humano.
+
+O modelo não conhece a credencial, mas depois do login controla a sessão com os
+privilégios da conta. Não use esse recurso para e-mail principal, banco, contas
+administrativas ou recuperação de outras contas. A configuração completa e o
+modelo de ameaça estão em [`docs/saved-login-broker.md`](docs/saved-login-broker.md).
 
 ## Publicar no X
 
@@ -150,7 +164,7 @@ e [`docs/production-deployment.md`](docs/production-deployment.md).
 
 - um navegador e um usuário por instância;
 - takeover e approvals ficam em memória;
-- ainda faltam downloads, hover, seleção de opções e teclas especiais;
+- ainda faltam downloads, iframes e suporte genérico a comboboxes customizados;
 - a produção ainda deve adicionar uma política de egress para fechar totalmente
   a janela TOCTOU de DNS rebinding;
 - OAuth, Cloudflare Access e Dokploy precisam ser validados com os secrets reais;

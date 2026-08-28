@@ -1,5 +1,6 @@
 .git
-.env
+.env*
+secrets
 README.md
 .codex
 docs

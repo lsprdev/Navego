@@ -16,6 +16,38 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ActionTimeout != 10*time.Second || cfg.SnapshotMaxElements != 150 {
 		t.Fatalf("unexpected limits: %+v", cfg)
 	}
+	if cfg.SavedLoginsFile != "" || cfg.SavedLoginSecretsDir != "/run/secrets" {
+		t.Fatalf("unexpected saved-login defaults: %+v", cfg)
+	}
+}
+
+func TestLoadSavedLoginConfiguration(t *testing.T) {
+	values := map[string]string{
+		"MCP_SAVED_LOGINS_FILE":       "/run/secrets/navego-logins.json",
+		"MCP_SAVED_LOGIN_SECRETS_DIR": "/run/secrets",
+	}
+	cfg, err := Load(func(name string) (string, bool) {
+		value, ok := values[name]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SavedLoginsFile != values["MCP_SAVED_LOGINS_FILE"] || cfg.SavedLoginSecretsDir != values["MCP_SAVED_LOGIN_SECRETS_DIR"] {
+		t.Fatalf("saved-login configuration not loaded: %+v", cfg)
+	}
+}
+
+func TestLoadRejectsRelativeSavedLoginPaths(t *testing.T) {
+	_, err := Load(func(name string) (string, bool) {
+		if name == "MCP_SAVED_LOGINS_FILE" {
+			return "secrets/logins.json", true
+		}
+		return "", false
+	})
+	if err == nil {
+		t.Fatal("expected relative saved-login manifest path to fail")
+	}
 }
 
 func TestLoadRejectsUnsafeTakeoverURL(t *testing.T) {

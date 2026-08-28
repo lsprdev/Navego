@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "logins": [
+    {
+      "id": "example",
+      "label": "Conta de teste",
+      "origin": "https://portal.example.com",
+      "username_file": "/run/secrets/example-username",
+      "password_file": "/run/secrets/example-password"
+    }
+  ]
+}

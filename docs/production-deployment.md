@@ -92,6 +92,11 @@ Referências:
    do Dokploy já a cria.
 6. Faça deploy e confirme que os dois containers iniciaram.
 
+Se habilitar logins salvos, monte manifesto, usuário e senha como Docker secrets
+somente no `navego-gateway`, sob `/run/secrets`. Não use variáveis de ambiente
+para os valores e não monte os secrets no Chromium. O procedimento e o modelo
+de ameaça estão em [saved-login-broker.md](./saved-login-broker.md).
+
 O volume persistente tem nome fixo `navego-browser-data`. Inclua-o no
 backup do servidor. Ele contém cookies, sessões e o perfil do Chromium e deve ser
 tratado como dado sensível.

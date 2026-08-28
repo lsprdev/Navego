@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +59,7 @@ type Manager struct {
 	activeTarget     target.ID
 	generation       uint64
 	refs             map[string]refInfo
+	protectedValues  [][]byte
 }
 
 func NewManager(
@@ -94,7 +96,7 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 	if err := chromedp.Run(op, chromedp.Location(&url), chromedp.Title(&title)); err != nil {
 		return Status{}, fmt.Errorf("read browser status: %w", err)
 	}
-	return Status{Connected: true, URL: url, Title: title, Backend: "chromium"}, nil
+	return Status{Connected: true, URL: m.redactStringLocked(url), Title: m.redactStringLocked(title), Backend: "chromium"}, nil
 }
 
 func (m *Manager) Open(ctx context.Context, rawURL string) (Snapshot, error) {
@@ -566,6 +568,9 @@ func (m *Manager) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 	}
 	op, cancel := m.operationContext(ctx, m.navigationTimeout)
 	defer cancel()
+	if err := m.ensureProtectedValuesNotVisibleLocked(op); err != nil {
+		return nil, "", err
+	}
 	var data []byte
 	var action chromedp.Action = chromedp.CaptureScreenshot(&data)
 	if fullPage {
@@ -585,6 +590,9 @@ func (m *Manager) PDF(ctx context.Context) ([]byte, string, error) {
 	}
 	op, cancel := m.operationContext(ctx, m.navigationTimeout)
 	defer cancel()
+	if err := m.ensureProtectedValuesNotVisibleLocked(op); err != nil {
+		return nil, "", err
+	}
 	var data []byte
 	if err := chromedp.Run(op, chromedp.ActionFunc(func(ctx context.Context) error {
 		var err error
@@ -632,7 +640,8 @@ func (m *Manager) DescribeAction(ctx context.Context, ref string) (ActionTarget,
 		Ref:        ref,
 		Role:       info.element.Role,
 		Name:       info.element.Name,
-		URL:        url,
+		URL:        m.redactStringLocked(url),
+		RawURL:     url,
 		Generation: m.generation,
 		Fields:     fields,
 		FieldRefs:  fieldRefs,
@@ -687,7 +696,11 @@ func (m *Manager) CommitAction(ctx context.Context, target ActionTarget) (Snapsh
 	if !current.Found {
 		return Snapshot{}, errors.New("the target element disappeared after approval was prepared")
 	}
-	if current.URL != target.URL {
+	expectedURL := target.RawURL
+	if expectedURL == "" {
+		expectedURL = target.URL
+	}
+	if current.URL != expectedURL {
 		return Snapshot{}, errors.New("the page URL changed after approval was prepared")
 	}
 	if target.Name != "" && current.Name != target.Name {
@@ -719,6 +732,10 @@ func (m *Manager) Close() error {
 	m.privateContexts = make(map[cdp.BrowserContextID]struct{})
 	m.activeTarget = ""
 	m.refs = make(map[string]refInfo)
+	for _, value := range m.protectedValues {
+		clear(value)
+	}
+	m.protectedValues = nil
 	return nil
 }
 
@@ -748,6 +765,7 @@ func (m *Manager) snapshotLocked(ctx context.Context) (Snapshot, error) {
 	}
 	snapshot.Generation = m.generation
 	snapshot.Backend = "chromium"
+	m.redactProtectedValuesLocked(&snapshot)
 	m.refs = make(map[string]refInfo, len(snapshot.Elements))
 	for index := range snapshot.Elements {
 		element := &snapshot.Elements[index]
@@ -758,6 +776,81 @@ func (m *Manager) snapshotLocked(ctx context.Context) (Snapshot, error) {
 		}
 	}
 	return snapshot, nil
+}
+
+func (m *Manager) protectValueLocked(value []byte) {
+	if len(value) == 0 {
+		return
+	}
+	for _, existing := range m.protectedValues {
+		if bytes.Equal(existing, value) {
+			return
+		}
+	}
+	m.protectedValues = append(m.protectedValues, append([]byte(nil), value...))
+}
+
+func (m *Manager) redactProtectedValuesLocked(snapshot *Snapshot) {
+	snapshot.URL = m.redactStringLocked(snapshot.URL)
+	snapshot.Title = m.redactStringLocked(snapshot.Title)
+	snapshot.Text = m.redactStringLocked(snapshot.Text)
+	snapshot.Metadata.Description = m.redactStringLocked(snapshot.Metadata.Description)
+	snapshot.Metadata.ImageURL = m.redactStringLocked(snapshot.Metadata.ImageURL)
+	snapshot.Metadata.ImageAlt = m.redactStringLocked(snapshot.Metadata.ImageAlt)
+	snapshot.Metadata.SiteName = m.redactStringLocked(snapshot.Metadata.SiteName)
+	snapshot.Metadata.Type = m.redactStringLocked(snapshot.Metadata.Type)
+	snapshot.Metadata.ArticleSection = m.redactStringLocked(snapshot.Metadata.ArticleSection)
+	for index := range snapshot.Elements {
+		element := &snapshot.Elements[index]
+		redactedValue := m.redactStringLocked(element.Value)
+		if redactedValue != element.Value {
+			element.Value = ""
+			element.Secret = true
+		}
+		element.Name = m.redactStringLocked(element.Name)
+	}
+}
+
+func (m *Manager) redactStringLocked(value string) string {
+	for _, protected := range m.protectedValues {
+		if len(protected) == 0 {
+			continue
+		}
+		value = strings.ReplaceAll(value, string(protected), "[saved credential]")
+	}
+	return value
+}
+
+func (m *Manager) ensureProtectedValuesNotVisibleLocked(ctx context.Context) error {
+	if len(m.protectedValues) == 0 {
+		return nil
+	}
+	encoded := make([]string, 0, len(m.protectedValues))
+	for _, value := range m.protectedValues {
+		if len(value) > 0 {
+			encoded = append(encoded, strconv.Quote(string(value)))
+		}
+	}
+	if len(encoded) == 0 {
+		return nil
+	}
+	script := fmt.Sprintf(`(() => {
+		const protectedValues = [%s];
+		const visibleText = String(document.body?.innerText || "") + "\n" + String(document.title || "") + "\n" + String(location.href || "");
+		const fieldValues = Array.from(document.querySelectorAll("input,textarea,select,[contenteditable='true']"))
+			.filter(el => !(el instanceof HTMLInputElement && String(el.type).toLowerCase() === "password"))
+			.map(el => String(el.isContentEditable ? el.innerText : el.value || "")).join("\n");
+		const exposed = visibleText + "\n" + fieldValues;
+		return protectedValues.some(value => value && exposed.includes(value));
+	})()`, strings.Join(encoded, ","))
+	var exposed bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(script, &exposed)); err != nil {
+		return fmt.Errorf("check page for protected credential values: %w", err)
+	}
+	if exposed {
+		return errors.New("screenshot or PDF blocked because the current page visibly contains a protected saved-credential value")
+	}
+	return nil
 }
 
 func (m *Manager) refLocked(ref string) (refInfo, error) {
@@ -836,8 +929,8 @@ func (m *Manager) listTabsLocked(ctx context.Context) (TabsResult, error) {
 		}
 		result.Tabs = append(result.Tabs, Tab{
 			ID:      string(info.TargetID),
-			URL:     info.URL,
-			Title:   info.Title,
+			URL:     m.redactStringLocked(info.URL),
+			Title:   m.redactStringLocked(info.Title),
 			Active:  info.TargetID == m.activeTarget,
 			Private: false,
 		})

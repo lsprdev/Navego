@@ -1,13 +1,18 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lsprdev/Navego/internal/approval"
 	"github.com/lsprdev/Navego/internal/browser"
+	"github.com/lsprdev/Navego/internal/credentials"
 	"github.com/lsprdev/Navego/internal/takeover"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,6 +23,12 @@ type fakeBrowser struct {
 	commits     int
 	opens       int
 	privateTabs int
+	hovers      int
+	keyPresses  int
+	selections  int
+	scrolls     int
+	savedLogins int
+	secretOK    bool
 }
 
 func (f *fakeBrowser) Status(context.Context) (browser.Status, error) {
@@ -54,6 +65,41 @@ func (f *fakeBrowser) Click(context.Context, string) (browser.Snapshot, error) {
 	return f.snapshot, nil
 }
 func (f *fakeBrowser) Type(context.Context, string, string, bool) (browser.Snapshot, error) {
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) Hover(context.Context, string) (browser.Snapshot, error) {
+	f.hovers++
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) PressKey(context.Context, string, string) (browser.Snapshot, error) {
+	f.keyPresses++
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) SelectOption(context.Context, string, string) (browser.Snapshot, error) {
+	f.selections++
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) Scroll(context.Context, string, int, string) (browser.Snapshot, error) {
+	f.scrolls++
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) DescribeSavedLogin(context.Context, string, string, string) (browser.SavedLoginTarget, error) {
+	return browser.SavedLoginTarget{
+		URL:          f.snapshot.URL,
+		RawURL:       f.snapshot.URL,
+		Origin:       "https://example.com",
+		Generation:   f.snapshot.Generation,
+		UsernameRef:  "g1e1",
+		UsernameName: "Email",
+		PasswordRef:  "g1e2",
+		PasswordName: "Password",
+		SubmitRef:    "g1e3",
+		SubmitName:   "Sign in",
+	}, nil
+}
+func (f *fakeBrowser) CommitSavedLogin(_ context.Context, _ browser.SavedLoginTarget, username, password []byte) (browser.Snapshot, error) {
+	f.savedLogins++
+	f.secretOK = bytes.Equal(username, []byte("owner@example.com")) && bytes.Equal(password, []byte("test-password"))
 	return f.snapshot, nil
 }
 func (f *fakeBrowser) Screenshot(context.Context, bool) ([]byte, string, error) {
@@ -101,13 +147,13 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	for _, tool := range listed.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_new_private_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
+	for _, name := range []string{"browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_new_private_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_hover", "browser_press_key", "browser_select_option", "browser_scroll", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
 		if !names[name] {
 			t.Fatalf("tool %s was not advertised", name)
 		}
 	}
-	if len(names) != 19 {
-		t.Fatalf("advertised %d tools; want 19", len(names))
+	if len(names) != 25 {
+		t.Fatalf("advertised %d tools; want 25", len(names))
 	}
 	found, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_find", Arguments: map[string]any{"query": "X", "limit": 3}})
 	if err != nil || found.IsError {
@@ -132,6 +178,112 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	resumed, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_resume_after_human", Arguments: map[string]any{}})
 	if err != nil || resumed.IsError {
 		t.Fatalf("resume: result=%+v err=%v", resumed, err)
+	}
+}
+
+func TestSavedLoginNeverReturnsCredentialsAndCommitsOnce(t *testing.T) {
+	directory := t.TempDir()
+	usernamePath := filepath.Join(directory, "username")
+	passwordPath := filepath.Join(directory, "password")
+	manifestPath := filepath.Join(directory, "logins.json")
+	if err := os.WriteFile(usernamePath, []byte("owner@example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(passwordPath, []byte("test-password\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"version": 1,
+		"logins": []map[string]string{{
+			"id": "example", "label": "Example account", "origin": "https://example.com",
+			"username_file": usernamePath, "password_file": passwordPath,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logins, err := credentials.Load(manifestPath, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://example.com/login", Title: "Login", Generation: 1}}
+	server := New(fake, takeover.New(), approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil, WithSavedLogins(logins))
+	client := connectTestClient(t, server.MCP)
+
+	prepared, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name: "browser_prepare_saved_login",
+		Arguments: map[string]any{
+			"username_ref": "g1e1", "password_ref": "g1e2", "submit_ref": "g1e3",
+		},
+	})
+	if err != nil || prepared.IsError {
+		t.Fatalf("prepare saved login: result=%+v err=%v", prepared, err)
+	}
+	assertResultHasNoSecrets(t, prepared)
+	structured, ok := prepared.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected structured content: %#v", prepared.StructuredContent)
+	}
+	id, _ := structured["approval_id"].(string)
+	if id == "" {
+		t.Fatal("saved-login approval ID missing")
+	}
+	params := &mcp.CallToolParams{Name: "browser_commit_saved_login", Arguments: map[string]any{"approval_id": id}}
+	committed, err := client.CallTool(t.Context(), params)
+	if err != nil || committed.IsError {
+		t.Fatalf("commit saved login: result=%+v err=%v", committed, err)
+	}
+	assertResultHasNoSecrets(t, committed)
+	if fake.savedLogins != 1 || !fake.secretOK {
+		t.Fatalf("saved login was not delivered exactly once: calls=%d valid=%t", fake.savedLogins, fake.secretOK)
+	}
+	replayed, err := client.CallTool(t.Context(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.IsError || fake.savedLogins != 1 {
+		t.Fatalf("saved-login replay was not blocked: result=%+v calls=%d", replayed, fake.savedLogins)
+	}
+}
+
+func assertResultHasNoSecrets(t *testing.T, result *mcp.CallToolResult) {
+	t.Helper()
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"owner@example.com", "test-password"} {
+		if bytes.Contains(data, []byte(secret)) {
+			t.Fatalf("tool result leaked secret %q", secret)
+		}
+	}
+}
+
+func TestRobustInteractionTools(t *testing.T) {
+	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://example.com", Title: "Example", Generation: 1}}
+	server := New(fake, takeover.New(), approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil)
+	client := connectTestClient(t, server.MCP)
+
+	calls := []struct {
+		name string
+		args map[string]any
+	}{
+		{"browser_hover", map[string]any{"ref": "g1e1"}},
+		{"browser_press_key", map[string]any{"ref": "g1e1", "key": "ESCAPE"}},
+		{"browser_select_option", map[string]any{"ref": "g1e2", "option": "One"}},
+		{"browser_scroll", map[string]any{"direction": "down", "amount": 500}},
+	}
+	for _, call := range calls {
+		result, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: call.name, Arguments: call.args})
+		if err != nil || result.IsError {
+			t.Fatalf("%s: result=%+v err=%v", call.name, result, err)
+		}
+	}
+	if fake.hovers != 1 || fake.keyPresses != 1 || fake.selections != 1 || fake.scrolls != 1 {
+		t.Fatalf("interaction calls = hover:%d key:%d select:%d scroll:%d", fake.hovers, fake.keyPresses, fake.selections, fake.scrolls)
 	}
 }
 

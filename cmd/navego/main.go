@@ -13,6 +13,7 @@ import (
 	"github.com/lsprdev/Navego/internal/approval"
 	"github.com/lsprdev/Navego/internal/browser"
 	"github.com/lsprdev/Navego/internal/config"
+	"github.com/lsprdev/Navego/internal/credentials"
 	"github.com/lsprdev/Navego/internal/httpserver"
 	"github.com/lsprdev/Navego/internal/mcpserver"
 	"github.com/lsprdev/Navego/internal/oauthresource"
@@ -48,10 +49,18 @@ func main() {
 
 	takeoverState := takeover.New()
 	approvalStore := approval.NewStore(2 * time.Minute)
+	savedLogins, err := credentials.Load(cfg.SavedLoginsFile, cfg.SavedLoginSecretsDir)
+	if err != nil {
+		logger.Error("saved-login initialization failed", "error", err)
+		os.Exit(1)
+	}
 	var (
-		mcpOptions []mcpserver.Option
+		mcpOptions = []mcpserver.Option{mcpserver.WithSavedLogins(savedLogins)}
 		httpOAuth  *httpserver.OAuthOptions
 	)
+	if savedLogins.Enabled() {
+		logger.Info("saved-login broker enabled", "accounts", savedLogins.Count())
+	}
 	if cfg.OAuthEnabled {
 		discoveryCtx, cancel := context.WithTimeout(rootCtx, cfg.OAuthDiscoveryTimeout)
 		oauthVerifier, discovery, err := oauthresource.New(discoveryCtx, oauthresource.Config{

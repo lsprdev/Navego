@@ -42,6 +42,8 @@ func main() {
 	call(ctx, session, "browser_open", map[string]any{"url": targetURL})
 	call(ctx, session, "browser_find", map[string]any{"query": "Example Domain", "limit": 3})
 	call(ctx, session, "browser_wait", map[string]any{"text": "Example Domain", "timeout_ms": 2_000})
+	call(ctx, session, "browser_scroll", map[string]any{"direction": "down", "amount": 300})
+	call(ctx, session, "browser_press_key", map[string]any{"key": "HOME"})
 
 	call(ctx, session, "browser_request_human_login", map[string]any{"reason": "smoke test of the takeover boundary"})
 	blocked, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "browser_snapshot", Arguments: map[string]any{}})

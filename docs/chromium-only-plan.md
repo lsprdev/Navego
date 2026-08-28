@@ -65,7 +65,7 @@ O conjunto público permanece pequeno e orientado a intenção:
 
 - leitura: status, open, snapshot, find, wait;
 - tabs: list, new persistent, new private, switch, close;
-- interação: click e type não secreto;
+- interação: click, type não secreto, hover, scroll, teclas permitidas e select;
 - artefatos: screenshot e PDF;
 - humano: request login e resume;
 - efeitos externos: prepare, commit e cancel.
@@ -84,6 +84,19 @@ Não expor JavaScript arbitrário, cookies, storage, filesystem, shell ou CDP.
 6. `browser_resume_after_human` devolve o controle e um snapshot novo.
 
 O modelo não deve usar takeover como escape para menus difíceis.
+
+### Login salvo opcional
+
+1. O gateway identifica o formulário e a origem HTTPS exata.
+2. Uma conta configurada em Docker secrets é selecionada somente pelo servidor.
+3. `browser_prepare_saved_login` mostra label e origem, sem usuário ou senha.
+4. O usuário confirma explicitamente.
+5. `browser_commit_saved_login` lê os secrets, preenche e envia sem snapshot
+   intermediário; o approval é consumido uma vez.
+6. MFA, passkey, OTP e CAPTCHA continuam no takeover humano.
+
+O modelo passa a controlar a sessão autenticada, mesmo sem conhecer a senha.
+Por isso, o recurso é reservado a contas dedicadas e de baixo privilégio.
 
 ### Ação com efeito externo
 
@@ -138,10 +151,13 @@ O volume `navego-browser-data` nunca deve ser removido em deploys normais.
 
 ### M3 — interação robusta
 
-- `browser_hover`;
-- `browser_press_key` com allowlist;
-- `browser_select_option`;
-- melhor suporte a menus, popovers, iframes e elementos fora da viewport;
+- `browser_hover` implementado;
+- `browser_press_key` com allowlist implementado;
+- `browser_select_option` para selects nativos implementado;
+- `browser_scroll` por pixels ou ref implementado;
+- broker opcional de login salvo por origem implementado;
+- melhorar suporte futuro a popovers em portais DOM, iframes e comboboxes
+  customizados;
 - testes reais em X, Amazon e SIGAA.
 
 ### M4 — produção

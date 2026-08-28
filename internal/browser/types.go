@@ -95,6 +95,31 @@ type PrivateTabController interface {
 	NewPrivateTab(context.Context, string) (Snapshot, error)
 }
 
+type InteractionController interface {
+	Hover(context.Context, string) (Snapshot, error)
+	PressKey(context.Context, string, string) (Snapshot, error)
+	SelectOption(context.Context, string, string) (Snapshot, error)
+	Scroll(context.Context, string, int, string) (Snapshot, error)
+}
+
+type SavedLoginTarget struct {
+	URL          string `json:"url"`
+	RawURL       string `json:"-"`
+	Origin       string `json:"origin"`
+	Generation   uint64 `json:"generation"`
+	UsernameRef  string `json:"username_ref"`
+	UsernameName string `json:"username_name,omitempty"`
+	PasswordRef  string `json:"password_ref"`
+	PasswordName string `json:"password_name,omitempty"`
+	SubmitRef    string `json:"submit_ref"`
+	SubmitName   string `json:"submit_name"`
+}
+
+type SavedLoginController interface {
+	DescribeSavedLogin(context.Context, string, string, string) (SavedLoginTarget, error)
+	CommitSavedLogin(context.Context, SavedLoginTarget, []byte, []byte) (Snapshot, error)
+}
+
 type Status struct {
 	Connected bool   `json:"connected"`
 	URL       string `json:"url,omitempty"`
@@ -107,6 +132,7 @@ type ActionTarget struct {
 	Role       string            `json:"role"`
 	Name       string            `json:"name"`
 	URL        string            `json:"url"`
+	RawURL     string            `json:"-"`
 	Generation uint64            `json:"generation"`
 	Fields     map[string]string `json:"fields,omitempty"`
 	FieldRefs  map[string]string `json:"-"`

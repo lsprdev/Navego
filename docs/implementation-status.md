@@ -12,9 +12,11 @@ gateway Go.
 Componentes:
 
 - `cmd/navego`: processo HTTP, configuração, logs e graceful shutdown;
-- `internal/mcpserver`: 19 tools MCP com schemas, annotations e instruções;
+- `internal/mcpserver`: 25 tools MCP com schemas, annotations e instruções;
 - `internal/browser`: CDP, política de URL, snapshots, refs, metadados, tabs,
   BrowserContexts privados, find/wait, screenshot e PDF;
+- `internal/credentials` e `internal/loginapproval`: manifesto de contas,
+  confinamento de Docker secrets e approvals de login por origem;
 - `internal/takeover`: bloqueio global durante o controle humano;
 - `internal/approval`: approvals aleatórios, expirando e de uso único;
 - `internal/oauthresource`: discovery OIDC, JWT/JWKS, audience, subject allowlist
@@ -39,10 +41,16 @@ Tools expostas:
 - `browser_close_tab`
 - `browser_click`
 - `browser_type`
+- `browser_hover`
+- `browser_press_key`
+- `browser_select_option`
+- `browser_scroll`
 - `browser_take_screenshot`
 - `browser_export_pdf`
 - `browser_request_human_login`
 - `browser_resume_after_human`
+- `browser_prepare_saved_login`
+- `browser_commit_saved_login`
 - `browser_prepare_action`
 - `browser_commit_action`
 - `browser_cancel_action`
@@ -68,6 +76,9 @@ mesmo processo/container e não deve ser tratada como sandbox forte.
 - CDP permanece em loopback e não é publicado no host.
 - O perfil persistente fica no volume `navego-browser-data`.
 - Password inputs nunca aceitam `browser_type`.
+- Logins salvos opcionais são vinculados à origem HTTPS exata, lidos somente
+  depois de confirmação e nunca retornados por MCP; valores protegidos que
+  reapareçam no DOM são redigidos dos snapshots.
 - `browser_request_human_login` é usado somente para senha, MFA, passkey, OTP ou
   CAPTCHA; menus difíceis continuam automatizados.
 - Ações finais sensíveis não podem usar `browser_click`; exigem
@@ -107,9 +118,18 @@ O smoke Chromium-only deste milestone também passou:
    mesmo endpoint retornou `{}` no contexto privado;
 4. ao fechar a aba proprietária, o contexto privado desapareceu e o gateway
    voltou a uma aba persistente;
-5. o smoke completo confirmou as 19 tools, takeover, resume, tabs e screenshot;
+5. o smoke completo confirmou as 19 tools então existentes, takeover, resume,
+   tabs e screenshot;
 6. somente o gateway foi recriado; o ID do Chromium e o volume
    `navego-browser-data` permaneceram iguais.
+
+Na extensão atual, o smoke local confirmou as 25 tools. `browser_scroll` e
+`browser_press_key` passaram no fluxo principal; `browser_select_option` mudou
+um `<select>` público de teste de `dd3` para `dd5`, e `browser_hover` moveu o
+cursor sem clicar. O broker desativado reconheceu um formulário real e recusou
+o prepare antes de preencher qualquer campo. O commit de login permanece
+coberto por teste isolado com secrets descartáveis; o E2E real deve usar apenas
+uma conta de teste criada para esse fim.
 
 ## Decisões
 
@@ -127,8 +147,9 @@ O smoke Chromium-only deste milestone também passou:
 ## Limitações e próximos passos
 
 1. Validar novamente o connector do ChatGPT após atualizar o schema das tools.
-2. Configurar Auth0, Cloudflare Access e Dokploy com secrets reais.
-3. Adicionar egress externo contra DNS rebinding.
-4. Implementar hover, teclas especiais, select/combobox e menus complexos.
-5. Adicionar downloads e auditoria persistente conforme a necessidade.
-6. Reduzir tokens com snapshots incrementais e respostas mais compactas.
+2. Fazer um E2E local do broker apenas com uma conta descartável de teste.
+3. Configurar Auth0, Cloudflare Access e Dokploy com secrets reais.
+4. Adicionar egress externo contra DNS rebinding.
+5. Implementar iframes, comboboxes customizados e menus que usam portais DOM.
+6. Adicionar downloads e auditoria persistente conforme a necessidade.
+7. Reduzir tokens com snapshots incrementais e respostas mais compactas.

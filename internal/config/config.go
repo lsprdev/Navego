@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,8 @@ type Config struct {
 	SessionIdleTimeout    time.Duration
 	SnapshotMaxChars      int
 	SnapshotMaxElements   int
+	SavedLoginsFile       string
+	SavedLoginSecretsDir  string
 }
 
 func Load(lookup func(string) (string, bool)) (Config, error) {
@@ -79,6 +82,8 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		SessionIdleTimeout:    sessionIdleTimeout,
 		SnapshotMaxChars:      maxChars,
 		SnapshotMaxElements:   maxElements,
+		SavedLoginsFile:       stringValue(lookup, "MCP_SAVED_LOGINS_FILE", ""),
+		SavedLoginSecretsDir:  stringValue(lookup, "MCP_SAVED_LOGIN_SECRETS_DIR", "/run/secrets"),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -104,6 +109,14 @@ func (c Config) Validate() error {
 	}
 	if c.SnapshotMaxChars < 1 || c.SnapshotMaxElements < 1 {
 		return fmt.Errorf("snapshot limits must be positive")
+	}
+	if c.SavedLoginsFile != "" {
+		if !filepath.IsAbs(c.SavedLoginsFile) {
+			return fmt.Errorf("MCP_SAVED_LOGINS_FILE must be an absolute path")
+		}
+		if !filepath.IsAbs(c.SavedLoginSecretsDir) {
+			return fmt.Errorf("MCP_SAVED_LOGIN_SECRETS_DIR must be an absolute path")
+		}
 	}
 	if err := validateHTTPURL("MCP_CDP_ENDPOINT", c.CDPEndpoint); err != nil {
 		return err

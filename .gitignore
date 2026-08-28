@@ -3,3 +3,4 @@
 *.log
 coverage.out
 /navego
+/secrets/
