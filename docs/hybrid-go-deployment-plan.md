@@ -271,7 +271,21 @@ estarem estáveis, podemos adicionar `web_search` com um provider explícito.
 
 ## Roteamento híbrido
 
-O modelo não escolherá livremente uma engine. O gateway aplica estas regras:
+O usuário pode escolher explicitamente a engine com um prefixo, e o gateway
+mantém essa decisão entre chamadas:
+
+| Prefixo | Modo | Comportamento |
+| --- | --- | --- |
+| `ob:` | Obscura | público, efêmero e read-only; nunca transfere cookies |
+| `ch:` | Chromium | persistente, interativo e apto a login humano |
+| nenhum | auto | aplica as regras híbridas abaixo |
+
+`browser_select_backend` troca a engine da página atual. `browser_open` também
+aceita `backend=obscura`, `backend=chromium` ou `backend=auto`. Após takeover de
+login, os hosts inicial e final são fixados ao Chromium até o processo reiniciar
+ou o usuário forçar Obscura explicitamente.
+
+No modo automático, o gateway aplica estas regras:
 
 | Situação | Backend |
 | --- | --- |
@@ -312,6 +326,7 @@ O gateway esconderá os backends e exporá um conjunto pequeno:
 ### Leitura e navegação
 
 - `browser_status`
+- `browser_select_backend`
 - `browser_open`
 - `browser_snapshot`
 - `browser_find`

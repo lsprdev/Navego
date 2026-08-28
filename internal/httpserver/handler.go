@@ -46,7 +46,11 @@ func New(opts Options) http.Handler {
 	var mcpHandler http.Handler = mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return opts.MCPServer },
 		&mcp.StreamableHTTPOptions{
-			Stateless:                    false,
+			// MCP 2026-07-28 removed protocol-level HTTP sessions. The Go SDK
+			// advertises and accepts that version only in stateless mode. Navego's
+			// browser and approval state already live outside the MCP transport, so
+			// requests do not need an Mcp-Session-Id to share browser state.
+			Stateless:                    true,
 			JSONResponse:                 true,
 			Logger:                       logger,
 			SessionTimeout:               opts.SessionIdleTimeout,
@@ -54,9 +58,10 @@ func New(opts Options) http.Handler {
 			PropagateRequestCancellation: true,
 		},
 	)
-	if opts.OAuth != nil {
-		mcpHandler = advertiseToolSecuritySchemes(mcpHandler, logger)
-	}
+	// ChatGPT expects securitySchemes on the top-level tool descriptor for both
+	// anonymous and OAuth tools. The Go SDK currently exposes it only through
+	// _meta, so always mirror it in tools/list responses.
+	mcpHandler = advertiseToolSecuritySchemes(mcpHandler, logger)
 
 	protectedMCP := http.NewCrossOriginProtection().Handler(mcpHandler)
 	if opts.OAuth != nil {
@@ -88,7 +93,10 @@ func New(opts Options) http.Handler {
 	mux.Handle("POST /mcp", protectedMCP)
 	mux.Handle("DELETE /mcp", protectedMCP)
 	mux.HandleFunc("GET /healthz", healthHandler(opts.Browser))
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, _ *http.Request) {
+	// Match only the exact root. A catch-all root would return app metadata for
+	// unknown OAuth discovery paths and make clients interpret it as malformed
+	// authorization metadata instead of an absent endpoint.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"name":     "navego",
 			"version":  "0.1.0",

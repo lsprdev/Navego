@@ -137,6 +137,91 @@ func TestAlwaysChromiumAndHumanHandoff(t *testing.T) {
 	}
 }
 
+func TestExplicitBackendModePersistsAndCanReturnToAuto(t *testing.T) {
+	t.Parallel()
+	chromium := &fakeChromium{}
+	public := &fakePublic{}
+	router := New(chromium, public, nil, 4_000, nil)
+
+	forcedChromium, err := router.OpenWithBackend(t.Context(), "https://example.com/one", browser.BackendMode("ch"))
+	if err != nil || forcedChromium.Backend != "chromium" {
+		t.Fatalf("forced Chromium snapshot=%+v err=%v", forcedChromium, err)
+	}
+	persistentChromium, err := router.Open(t.Context(), "https://example.com/two")
+	if err != nil || persistentChromium.Backend != "chromium" || len(public.opened) != 0 {
+		t.Fatalf("persistent Chromium snapshot=%+v public=%v err=%v", persistentChromium, public.opened, err)
+	}
+
+	automatic, err := router.OpenWithBackend(t.Context(), "https://example.com/three", browser.BackendModeAuto)
+	if err != nil || automatic.Backend != "obscura" {
+		t.Fatalf("automatic snapshot=%+v err=%v", automatic, err)
+	}
+	status, err := router.Status(t.Context())
+	if err != nil || status.Routing == nil || status.Routing.Mode != "auto" {
+		t.Fatalf("routing status=%+v err=%v", status, err)
+	}
+
+	forcedObscura, err := router.OpenWithBackend(t.Context(), "https://example.com/four", browser.BackendMode("ob"))
+	if err != nil || forcedObscura.Backend != "obscura" {
+		t.Fatalf("forced Obscura snapshot=%+v err=%v", forcedObscura, err)
+	}
+	persistentObscura, err := router.Open(t.Context(), "https://example.com/five")
+	if err != nil || persistentObscura.Backend != "obscura" {
+		t.Fatalf("persistent Obscura snapshot=%+v err=%v", persistentObscura, err)
+	}
+}
+
+func TestSelectingBackendHandsCurrentPageAcross(t *testing.T) {
+	t.Parallel()
+	chromium := &fakeChromium{}
+	public := &fakePublic{}
+	router := New(chromium, public, nil, 4_000, nil)
+
+	obscuraSnapshot, err := router.SelectBackend(t.Context(), browser.BackendModeObscura)
+	if err != nil || obscuraSnapshot.Backend != "obscura" {
+		t.Fatalf("select Obscura snapshot=%+v err=%v", obscuraSnapshot, err)
+	}
+	chromiumSnapshot, err := router.SelectBackend(t.Context(), browser.BackendModeChromium)
+	if err != nil || chromiumSnapshot.Backend != "chromium" {
+		t.Fatalf("select Chromium snapshot=%+v err=%v", chromiumSnapshot, err)
+	}
+	if got := chromium.opened[len(chromium.opened)-1]; got != obscuraSnapshot.URL {
+		t.Fatalf("Chromium handoff URL=%q, want %q", got, obscuraSnapshot.URL)
+	}
+}
+
+func TestHumanLoginPinsHostToChromiumInAutoMode(t *testing.T) {
+	t.Parallel()
+	chromium := &fakeChromium{}
+	public := &fakePublic{}
+	router := New(chromium, public, nil, 4_000, nil)
+
+	loginURL := "https://sig.example.edu/login"
+	if _, err := router.OpenWithBackend(t.Context(), loginURL, browser.BackendModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.PrepareHumanTakeover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := router.OpenWithBackend(t.Context(), "https://public.example/news", browser.BackendModeAuto); err != nil {
+		t.Fatal(err)
+	}
+
+	dashboard, err := router.Open(t.Context(), "https://sig.example.edu/dashboard")
+	if err != nil || dashboard.Backend != "chromium" {
+		t.Fatalf("pinned dashboard snapshot=%+v err=%v", dashboard, err)
+	}
+	status, err := router.Status(t.Context())
+	if err != nil || status.Routing == nil || status.Routing.PinnedChromiumHosts != 1 {
+		t.Fatalf("routing status=%+v err=%v", status, err)
+	}
+
+	publicLogin, err := router.OpenWithBackend(t.Context(), loginURL, browser.BackendModeObscura)
+	if err != nil || publicLogin.Backend != "obscura" {
+		t.Fatalf("explicit Obscura did not override pin: snapshot=%+v err=%v", publicLogin, err)
+	}
+}
+
 func TestFallsBackToChromiumWhenObscuraFails(t *testing.T) {
 	t.Parallel()
 	chromium := &fakeChromium{}

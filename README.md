@@ -37,7 +37,8 @@ Somente o gateway conhece seu MCP e usa uma allowlist fixa de seis tools.
 - screenshot MCP como bloco de imagem;
 - PDF MCP como recurso incorporado;
 - Obscura `v0.2.1` fixado por digest para leitura, Markdown, screenshot e PDF;
-- roteamento público para Obscura, domínios autenticados para Chromium e fallback;
+- seleção explícita por prefixo (`ob:`/Obscura, `ch:`/Chromium) e modo automático;
+- domínios autenticados fixados dinamicamente ao Chromium, além do fallback;
 - circuit breaker do Obscura com fallback, cooldown e estado observável;
 - bloqueio de senha, IPs locais/reservados, DNS misto, redirects e subrequests;
 - takeover humano: a automação para até o usuário responder `pronto`;
@@ -86,6 +87,17 @@ As tools de escrita usam aprovação `writes` no Codex. A configuração e o for
 atual de servidores MCP estão documentados em
 [OpenAI — MCP no Codex](https://developers.openai.com/codex/mcp).
 
+### Selecionar o navegador
+
+- `ob: pegue a primeira notícia deste site` força o Obscura público e read-only;
+- `ch: consulte minhas notas no SIGAA` força o Chromium persistente;
+- sem prefixo, o gateway usa o modo automático.
+
+O modo explícito permanece ativo entre chamadas até outro prefixo ou seleção
+`auto`. Depois de um login humano, o host autenticado permanece no Chromium
+mesmo no modo automático. O takeover não deve ser usado para menus difíceis:
+nesses casos o cliente seleciona Chromium e continua a automação.
+
 ## Login humano
 
 Quando aparecer senha, passkey, OTP, CAPTCHA ou 2FA:
@@ -95,6 +107,9 @@ Quando aparecer senha, passkey, OTP, CAPTCHA ou 2FA:
 3. abra `https://127.0.0.1:3001` e autentique diretamente no Chromium;
 4. volte ao chat e responda `pronto`;
 5. o cliente chama `browser_resume_after_human` e continua na mesma sessão.
+
+Ao retomar, o gateway registra o host autenticado e evita que uma abertura
+posterior seja desviada ao Obscura sem cookies.
 
 Nunca envie senha ou código pelo chat. Login concluído também não significa que
 uma publicação, compra ou exclusão foi aprovada.

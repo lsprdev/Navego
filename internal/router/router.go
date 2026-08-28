@@ -69,6 +69,8 @@ type Router struct {
 	chromium            browser.Controller
 	public              publicBackend
 	active              Backend
+	selection           browser.BackendMode
+	pinnedChromiumHosts map[string]struct{}
 	publicSnapshot      obscura.Snapshot
 	publicMetadata      browser.Metadata
 	generation          uint64
@@ -93,15 +95,17 @@ func New(chromium browser.Controller, public publicBackend, alwaysChromium []str
 		}
 	}
 	router := &Router{
-		chromium:         chromium,
-		public:           public,
-		active:           BackendChromium,
-		alwaysChromium:   domains,
-		maxChars:         maxChars,
-		logger:           logger,
-		failureThreshold: defaultFailureThreshold,
-		circuitCooldown:  defaultCircuitCooldown,
-		now:              time.Now,
+		chromium:            chromium,
+		public:              public,
+		active:              BackendChromium,
+		selection:           browser.BackendModeAuto,
+		pinnedChromiumHosts: make(map[string]struct{}),
+		alwaysChromium:      domains,
+		maxChars:            maxChars,
+		logger:              logger,
+		failureThreshold:    defaultFailureThreshold,
+		circuitCooldown:     defaultCircuitCooldown,
+		now:                 time.Now,
 	}
 	for _, option := range options {
 		option(router)
@@ -131,22 +135,94 @@ func (r *Router) Status(ctx context.Context) (browser.Status, error) {
 }
 
 func (r *Router) Open(ctx context.Context, rawURL string) (browser.Snapshot, error) {
-	if r.public == nil || r.requiresChromium(rawURL) {
-		snapshot, err := r.chromium.Open(ctx, rawURL)
-		if err == nil {
-			r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
+	return r.OpenWithBackend(ctx, rawURL, browser.BackendModeCurrent)
+}
+
+func (r *Router) OpenWithBackend(ctx context.Context, rawURL string, requested browser.BackendMode) (browser.Snapshot, error) {
+	mode, err := browser.ParseBackendMode(string(requested))
+	if err != nil {
+		return browser.Snapshot{}, err
+	}
+	if mode == browser.BackendModeCurrent {
+		mode = r.selectedMode()
+	} else {
+		r.setSelection(mode)
+	}
+
+	switch mode {
+	case browser.BackendModeChromium:
+		return r.openChromium(ctx, rawURL)
+	case browser.BackendModeObscura:
+		return r.openObscura(ctx, rawURL, false)
+	case browser.BackendModeAuto:
+		if r.public == nil || r.requiresChromium(rawURL) {
+			return r.openChromium(ctx, rawURL)
 		}
-		return snapshot, err
+		return r.openObscura(ctx, rawURL, true)
+	default:
+		return browser.Snapshot{}, fmt.Errorf("unsupported browser backend mode %q", mode)
+	}
+
+}
+
+func (r *Router) SelectBackend(ctx context.Context, requested browser.BackendMode) (browser.Snapshot, error) {
+	mode, err := browser.ParseBackendMode(string(requested))
+	if err != nil {
+		return browser.Snapshot{}, err
+	}
+	if mode == browser.BackendModeCurrent {
+		return browser.Snapshot{}, errors.New("backend is required: use auto, ob/obscura, or ch/chromium")
+	}
+	r.setSelection(mode)
+
+	switch mode {
+	case browser.BackendModeAuto:
+		return r.Snapshot(ctx)
+	case browser.BackendModeChromium:
+		if r.activeBackend() == BackendChromium {
+			return r.chromium.Snapshot(ctx)
+		}
+		return r.handoffCurrentToChromium(ctx)
+	case browser.BackendModeObscura:
+		if r.activeBackend() == BackendObscura {
+			return r.Snapshot(ctx)
+		}
+		status, statusErr := r.chromium.Status(ctx)
+		if statusErr != nil {
+			return browser.Snapshot{}, fmt.Errorf("read current Chromium page before switching to Obscura: %w", statusErr)
+		}
+		if strings.TrimSpace(status.URL) == "" {
+			return browser.Snapshot{}, errors.New("Chromium has no current URL to open in Obscura")
+		}
+		return r.openObscura(ctx, status.URL, false)
+	default:
+		return browser.Snapshot{}, fmt.Errorf("unsupported browser backend mode %q", mode)
+	}
+}
+
+func (r *Router) openChromium(ctx context.Context, rawURL string) (browser.Snapshot, error) {
+	snapshot, err := r.chromium.Open(ctx, rawURL)
+	if err == nil {
+		r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
+	}
+	return snapshot, err
+}
+
+func (r *Router) openObscura(ctx context.Context, rawURL string, allowFallback bool) (browser.Snapshot, error) {
+	if r.public == nil {
+		if allowFallback {
+			return r.openChromium(ctx, rawURL)
+		}
+		return browser.Snapshot{}, errors.New("Obscura backend is not configured")
 	}
 	if !r.publicAttemptAllowed() {
+		if !allowFallback {
+			return browser.Snapshot{}, errors.New("Obscura was explicitly selected but its circuit breaker is open")
+		}
 		if r.logger != nil {
 			r.logger.Warn("Obscura circuit is open; routing to Chromium", "url", rawURL)
 		}
-		snapshot, err := r.chromium.Open(ctx, rawURL)
-		if err == nil {
-			r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
-		}
-		return snapshot, err
+		return r.openChromium(ctx, rawURL)
 	}
 
 	publicSnapshot, err := r.public.Open(ctx, rawURL, "load", r.maxChars)
@@ -160,14 +236,16 @@ func (r *Router) Open(ctx context.Context, rawURL string) (browser.Snapshot, err
 		return r.convertPublic(publicSnapshot), nil
 	}
 	r.recordPublicFailure()
+	if !allowFallback {
+		return browser.Snapshot{}, fmt.Errorf("Obscura was explicitly selected and could not open the page: %w", err)
+	}
 	if r.logger != nil {
 		r.logger.Warn("Obscura open failed; falling back to Chromium", "url", rawURL, "error", err)
 	}
-	chromiumSnapshot, chromiumErr := r.chromium.Open(ctx, rawURL)
+	chromiumSnapshot, chromiumErr := r.openChromium(ctx, rawURL)
 	if chromiumErr != nil {
 		return browser.Snapshot{}, fmt.Errorf("Obscura failed (%v) and Chromium fallback failed: %w", err, chromiumErr)
 	}
-	r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
 	return chromiumSnapshot, nil
 }
 
@@ -374,7 +452,11 @@ func (r *Router) SwitchTab(ctx context.Context, tabID string) (browser.Snapshot,
 	if !ok {
 		return browser.Snapshot{}, errors.New("Chromium backend does not support tabs")
 	}
-	return tabs.SwitchTab(ctx, tabID)
+	snapshot, err := tabs.SwitchTab(ctx, tabID)
+	if err == nil {
+		r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
+	}
+	return snapshot, err
 }
 
 func (r *Router) CloseTab(ctx context.Context, tabID string) (browser.Snapshot, error) {
@@ -385,7 +467,11 @@ func (r *Router) CloseTab(ctx context.Context, tabID string) (browser.Snapshot, 
 	if !ok {
 		return browser.Snapshot{}, errors.New("Chromium backend does not support tabs")
 	}
-	return tabs.CloseTab(ctx, tabID)
+	snapshot, err := tabs.CloseTab(ctx, tabID)
+	if err == nil {
+		r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
+	}
+	return snapshot, err
 }
 
 func (r *Router) Click(ctx context.Context, ref string) (browser.Snapshot, error) {
@@ -434,18 +520,33 @@ func (r *Router) CommitAction(ctx context.Context, target browser.ActionTarget) 
 }
 
 func (r *Router) PrepareHumanTakeover(ctx context.Context) error {
+	r.setSelection(browser.BackendModeChromium)
 	if r.activeBackend() == BackendChromium {
+		status, err := r.chromium.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("read Chromium status before human login: %w", err)
+		}
+		r.pinChromiumURL(status.URL)
 		return nil
 	}
-	r.mu.Lock()
-	targetURL := r.publicSnapshot.URL
-	r.mu.Unlock()
-	if targetURL == "" {
-		return errors.New("Obscura has no current URL to hand off")
+	snapshot, err := r.handoffCurrentToChromium(ctx)
+	if err != nil {
+		return err
 	}
-	if _, err := r.chromium.Open(ctx, targetURL); err != nil {
-		return fmt.Errorf("hand off Obscura page to Chromium: %w", err)
+	r.pinChromiumURL(snapshot.URL)
+	return nil
+}
+
+// CompleteHumanTakeover records the post-login host. Redirect-based SSO can
+// finish on a different host than the page where takeover began, so both are
+// kept on Chromium for the remainder of the browser session.
+func (r *Router) CompleteHumanTakeover(ctx context.Context) error {
+	status, err := r.chromium.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("read Chromium status after human login: %w", err)
 	}
+	r.pinChromiumURL(status.URL)
+	r.setSelection(browser.BackendModeChromium)
 	r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
 	return nil
 }
@@ -464,13 +565,19 @@ func (r *Router) Close() error {
 }
 
 func (r *Router) requiresChromium(rawURL string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil {
+	host := normalizedHost(rawURL)
+	if host == "" {
 		return false
 	}
-	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, domain := range r.alwaysChromium {
-		if host == domain || strings.HasSuffix(host, "."+domain) {
+		if hostMatchesDomain(host, domain) {
+			return true
+		}
+	}
+	for domain := range r.pinnedChromiumHosts {
+		if hostMatchesDomain(host, domain) {
 			return true
 		}
 	}
@@ -479,15 +586,64 @@ func (r *Router) requiresChromium(rawURL string) bool {
 
 func (r *Router) requireChromiumInteraction() error {
 	if r.activeBackend() != BackendChromium {
-		return errors.New("the current page is in the read-only Obscura backend; request human login to hand it off to Chromium before interacting")
+		return errors.New("the current page is in the read-only Obscura backend; call browser_select_backend with backend ch/chromium before interacting; request human login only when authentication is actually required")
 	}
 	return nil
+}
+
+func (r *Router) handoffCurrentToChromium(ctx context.Context) (browser.Snapshot, error) {
+	r.mu.Lock()
+	targetURL := r.publicSnapshot.URL
+	r.mu.Unlock()
+	if targetURL == "" {
+		return browser.Snapshot{}, errors.New("Obscura has no current URL to hand off")
+	}
+	snapshot, err := r.chromium.Open(ctx, targetURL)
+	if err != nil {
+		return browser.Snapshot{}, fmt.Errorf("hand off Obscura page to Chromium: %w", err)
+	}
+	r.setActive(BackendChromium, obscura.Snapshot{}, browser.Metadata{})
+	return snapshot, nil
+}
+
+func normalizedHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+}
+
+func hostMatchesDomain(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
+}
+
+func (r *Router) pinChromiumURL(rawURL string) {
+	host := normalizedHost(rawURL)
+	if host == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pinnedChromiumHosts[host] = struct{}{}
 }
 
 func (r *Router) activeBackend() Backend {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.active
+}
+
+func (r *Router) selectedMode() browser.BackendMode {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.selection
+}
+
+func (r *Router) setSelection(mode browser.BackendMode) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.selection = mode
 }
 
 func (r *Router) setActive(active Backend, snapshot obscura.Snapshot, metadata browser.Metadata) {
@@ -589,10 +745,12 @@ func (r *Router) routingStatus() *browser.RoutingStatus {
 		}
 	}
 	return &browser.RoutingStatus{
-		PublicBackend:      string(BackendObscura),
-		CircuitState:       state,
-		ConsecutiveFailure: r.consecutiveFailures,
-		RetryAt:            retryAt,
+		PublicBackend:       string(BackendObscura),
+		Mode:                string(r.selection),
+		PinnedChromiumHosts: len(r.pinnedChromiumHosts),
+		CircuitState:        state,
+		ConsecutiveFailure:  r.consecutiveFailures,
+		RetryAt:             retryAt,
 	}
 }
 

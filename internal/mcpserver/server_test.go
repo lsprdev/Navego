@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,15 +14,30 @@ import (
 )
 
 type fakeBrowser struct {
-	snapshot browser.Snapshot
-	commits  int
+	snapshot             browser.Snapshot
+	commits              int
+	selectedBackend      browser.BackendMode
+	openedBackend        browser.BackendMode
+	completedHumanLogins int
 }
 
 func (f *fakeBrowser) Status(context.Context) (browser.Status, error) {
 	return browser.Status{Connected: true, URL: f.snapshot.URL, Title: f.snapshot.Title}, nil
 }
 func (f *fakeBrowser) Open(context.Context, string) (browser.Snapshot, error) { return f.snapshot, nil }
-func (f *fakeBrowser) Snapshot(context.Context) (browser.Snapshot, error)     { return f.snapshot, nil }
+func (f *fakeBrowser) OpenWithBackend(_ context.Context, _ string, backend browser.BackendMode) (browser.Snapshot, error) {
+	f.openedBackend = backend
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) SelectBackend(_ context.Context, backend browser.BackendMode) (browser.Snapshot, error) {
+	f.selectedBackend = backend
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) CompleteHumanTakeover(context.Context) error {
+	f.completedHumanLogins++
+	return nil
+}
+func (f *fakeBrowser) Snapshot(context.Context) (browser.Snapshot, error) { return f.snapshot, nil }
 func (f *fakeBrowser) Find(_ context.Context, query string, limit int) (browser.FindResult, error) {
 	return browser.FindSnapshot(f.snapshot, query, limit)
 }
@@ -91,13 +107,13 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	for _, tool := range listed.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
+	for _, name := range []string{"browser_select_backend", "browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
 		if !names[name] {
 			t.Fatalf("tool %s was not advertised", name)
 		}
 	}
-	if len(names) != 18 {
-		t.Fatalf("advertised %d tools; want 18", len(names))
+	if len(names) != 19 {
+		t.Fatalf("advertised %d tools; want 19", len(names))
 	}
 	found, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_find", Arguments: map[string]any{"query": "X", "limit": 3}})
 	if err != nil || found.IsError {
@@ -122,6 +138,112 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	resumed, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_resume_after_human", Arguments: map[string]any{}})
 	if err != nil || resumed.IsError {
 		t.Fatalf("resume: result=%+v err=%v", resumed, err)
+	}
+	if fake.completedHumanLogins != 1 {
+		t.Fatalf("completed human logins = %d, want 1", fake.completedHumanLogins)
+	}
+}
+
+func TestExplicitBackendSelection(t *testing.T) {
+	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://example.com", Title: "Example", Backend: "chromium", Generation: 1}}
+	server := New(fake, takeover.New(), approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil)
+	client := connectTestClient(t, server.MCP)
+
+	opened, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "browser_open",
+		Arguments: map[string]any{"url": "https://example.com", "backend": "ch"},
+	})
+	if err != nil || opened.IsError {
+		t.Fatalf("open with Chromium: result=%+v err=%v", opened, err)
+	}
+	if fake.openedBackend != browser.BackendModeChromium {
+		t.Fatalf("opened backend = %q, want chromium", fake.openedBackend)
+	}
+	missing, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "browser_open",
+		Arguments: map[string]any{"url": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !missing.IsError {
+		t.Fatalf("browser_open accepted a missing backend: %+v", missing)
+	}
+
+	selected, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "browser_select_backend",
+		Arguments: map[string]any{"backend": "ob"},
+	})
+	if err != nil || selected.IsError {
+		t.Fatalf("select Obscura: result=%+v err=%v", selected, err)
+	}
+	if fake.selectedBackend != browser.BackendModeObscura {
+		t.Fatalf("selected backend = %q, want obscura", fake.selectedBackend)
+	}
+
+	invalid, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "browser_select_backend",
+		Arguments: map[string]any{"backend": "other"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !invalid.IsError {
+		t.Fatalf("invalid backend was accepted: %+v", invalid)
+	}
+	if !strings.Contains(Instructions, `"ob:"`) || !strings.Contains(Instructions, `"ch:"`) {
+		t.Fatal("server instructions do not document ob:/ch: routing")
+	}
+}
+
+func TestScreenshotToolProvidesInlineUI(t *testing.T) {
+	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://example.com", Title: "Example", Generation: 1}}
+	server := New(fake, takeover.New(), approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil)
+	client := connectTestClient(t, server.MCP)
+
+	listed, err := client.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var screenshot *mcp.Tool
+	for _, tool := range listed.Tools {
+		if tool.Name == "browser_take_screenshot" {
+			screenshot = tool
+			break
+		}
+	}
+	if screenshot == nil {
+		t.Fatal("screenshot tool was not advertised")
+	}
+	ui, ok := screenshot.Meta["ui"].(map[string]any)
+	if !ok || ui["resourceUri"] != screenshotUIResourceURI {
+		t.Fatalf("screenshot UI metadata = %#v", screenshot.Meta["ui"])
+	}
+	if got := screenshot.Meta["openai/outputTemplate"]; got != screenshotUIResourceURI {
+		t.Fatalf("output template = %#v, want %q", got, screenshotUIResourceURI)
+	}
+
+	resource, err := client.ReadResource(t.Context(), &mcp.ReadResourceParams{URI: screenshotUIResourceURI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.Contents) != 1 || resource.Contents[0].MIMEType != "text/html;profile=mcp-app" {
+		t.Fatalf("screenshot UI resource = %#v", resource.Contents)
+	}
+	if html := resource.Contents[0].Text; !strings.Contains(html, "toolResponseMetadata") || !strings.Contains(html, "ui/notifications/tool-result") {
+		t.Fatalf("screenshot UI is missing MCP Apps result handling")
+	}
+
+	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_take_screenshot", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatalf("screenshot: result=%+v err=%v", result, err)
+	}
+	if len(result.Content) != 2 {
+		t.Fatalf("screenshot content = %#v", result.Content)
+	}
+	image, ok := result.Content[0].(*mcp.ImageContent)
+	if !ok || image.MIMEType != "image/png" || string(image.Data) != "png" {
+		t.Fatalf("screenshot image = %#v", result.Content[0])
 	}
 }
 

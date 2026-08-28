@@ -91,10 +91,12 @@ type TabController interface {
 }
 
 type RoutingStatus struct {
-	PublicBackend      string     `json:"public_backend"`
-	CircuitState       string     `json:"circuit_state"`
-	ConsecutiveFailure int        `json:"consecutive_failures"`
-	RetryAt            *time.Time `json:"retry_at,omitempty"`
+	PublicBackend       string     `json:"public_backend"`
+	Mode                string     `json:"mode"`
+	PinnedChromiumHosts int        `json:"pinned_chromium_hosts,omitempty"`
+	CircuitState        string     `json:"circuit_state"`
+	ConsecutiveFailure  int        `json:"consecutive_failures"`
+	RetryAt             *time.Time `json:"retry_at,omitempty"`
 }
 
 type Status struct {

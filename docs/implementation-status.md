@@ -10,11 +10,12 @@ efêmero locais.
 Componentes implementados:
 
 - `cmd/navego`: processo HTTP, configuração, logs e graceful shutdown;
-- `internal/mcpserver`: 18 tools MCP com schemas e annotations;
+- `internal/mcpserver`: 19 tools MCP com schemas e annotations;
 - `internal/browser`: conexão CDP, refs por geração, snapshots, tabs, find/wait e screenshots;
 - `internal/obscura`: cliente MCP privado, contrato, allowlist, limites e parsing;
 - `internal/metadata`: Open Graph e links HTML com dialer público fixado por IP;
-- `internal/router`: seleção, fallback, circuit breaker e handoff Obscura -> Chromium;
+- `internal/router`: seleção explícita/persistente, hosts autenticados fixados,
+  fallback, circuit breaker e handoff Obscura -> Chromium;
 - `internal/takeover`: bloqueio global enquanto o usuário controla a GUI;
 - `internal/approval`: approvals aleatórios, expirando e de uso único;
 - `internal/oauthresource`: discovery OIDC, JWT/JWKS, audience, subject allowlist
@@ -32,6 +33,7 @@ Componentes implementados:
 Tools expostas:
 
 - `browser_status`
+- `browser_select_backend`
 - `browser_open`
 - `browser_snapshot`
 - `browser_find`
@@ -117,6 +119,12 @@ como ações sensíveis.
   redirects revalidados e um dialer que rejeita e não disca IPs privados.
 - O circuit breaker abre após três falhas, espera 30 segundos e permite uma única
   tentativa em `half_open`; ambos os valores são configuráveis.
+- Os prefixos `ob:` e `ch:` selecionam respectivamente Obscura e Chromium; o
+  modo explícito permanece ativo até `auto` ou uma nova seleção.
+- Um takeover de login fixa o host inicial e o host final pós-SSO ao Chromium,
+  impedindo que URLs autenticadas voltem ao Obscura sem cookies.
+- `browser_request_human_login` é reservado para autenticação, MFA, passkey e
+  CAPTCHA; menus difíceis devem usar `browser_select_backend` com Chromium.
 - O gateway se reconecta a uma aba existente e não cancela targets no shutdown
   normal, preservando as abas no Chromium separado.
 - O gateway e o Chromium compartilham o namespace de rede.

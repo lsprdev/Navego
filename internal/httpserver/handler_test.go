@@ -60,6 +60,70 @@ func TestHealthDoesNotRequireAuthentication(t *testing.T) {
 	}
 }
 
+func TestUnknownDiscoveryPathsReturnNotFoundWithoutOAuth(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	handler := New(Options{MCPServer: server, Browser: stubBrowser{}})
+
+	for _, path := range []string{
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-protected-resource/mcp",
+		"/.well-known/oauth-authorization-server",
+		"/.well-known/openid-configuration",
+		"/mcp/.well-known/oauth-protected-resource",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("unknown discovery path %s status = %d, want %d", path, recorder.Code, http.StatusNotFound)
+		}
+	}
+
+	root := httptest.NewRecorder()
+	handler.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/", nil))
+	if root.Code != http.StatusOK {
+		t.Fatalf("root status = %d, want %d", root.Code, http.StatusOK)
+	}
+}
+
+func TestMCPAdvertisesCurrentStatelessProtocol(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	handler := New(Options{MCPServer: server, Browser: stubBrowser{}})
+	body := `{"jsonrpc":"2.0","id":"openai-mcp-discover","method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"openai-mcp","version":"1.0.0"},"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Mcp-Method", "server/discover")
+	request.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("server/discover status = %d, want %d; body = %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var response struct {
+		Result struct {
+			SupportedVersions []string `json:"supportedVersions"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, version := range response.Result.SupportedVersions {
+		if version == "2026-07-28" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("supportedVersions = %v, want 2026-07-28", response.Result.SupportedVersions)
+	}
+	if sessionID := recorder.Header().Get("Mcp-Session-Id"); sessionID != "" {
+		t.Fatalf("Mcp-Session-Id = %q, want stateless response", sessionID)
+	}
+}
+
 func TestMCPRequiresConfiguredBearerToken(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 	handler := New(Options{MCPServer: server, Browser: stubBrowser{}, APIKey: "secret"})
