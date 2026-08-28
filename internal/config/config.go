@@ -10,27 +10,22 @@ import (
 )
 
 type Config struct {
-	Host                    string
-	Port                    int
-	CDPEndpoint             string
-	APIKey                  string
-	PublicURL               string
-	OAuthEnabled            bool
-	OAuthIssuer             string
-	OAuthAudience           string
-	OAuthAllowedSubjects    []string
-	OAuthDiscoveryTimeout   time.Duration
-	HumanTakeoverURL        string
-	ActionTimeout           time.Duration
-	NavigationTimeout       time.Duration
-	SessionIdleTimeout      time.Duration
-	SnapshotMaxChars        int
-	SnapshotMaxElements     int
-	ObscuraEndpoint         string
-	ObscuraMaxPayload       int
-	ObscuraFailureThreshold int
-	ObscuraCooldown         time.Duration
-	AlwaysChromium          []string
+	Host                  string
+	Port                  int
+	CDPEndpoint           string
+	APIKey                string
+	PublicURL             string
+	OAuthEnabled          bool
+	OAuthIssuer           string
+	OAuthAudience         string
+	OAuthAllowedSubjects  []string
+	OAuthDiscoveryTimeout time.Duration
+	HumanTakeoverURL      string
+	ActionTimeout         time.Duration
+	NavigationTimeout     time.Duration
+	SessionIdleTimeout    time.Duration
+	SnapshotMaxChars      int
+	SnapshotMaxElements   int
 }
 
 func Load(lookup func(string) (string, bool)) (Config, error) {
@@ -68,39 +63,22 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	}
 
 	cfg := Config{
-		Host:                    stringValue(lookup, "MCP_HOST", "0.0.0.0"),
-		Port:                    port,
-		CDPEndpoint:             stringValue(lookup, "MCP_CDP_ENDPOINT", "http://127.0.0.1:9222"),
-		APIKey:                  stringValue(lookup, "MCP_API_KEY", ""),
-		PublicURL:               stringValue(lookup, "MCP_PUBLIC_URL", ""),
-		OAuthEnabled:            oauthEnabled,
-		OAuthIssuer:             stringValue(lookup, "MCP_OAUTH_ISSUER", ""),
-		OAuthAudience:           stringValue(lookup, "MCP_OAUTH_AUDIENCE", ""),
-		OAuthAllowedSubjects:    csvValue(lookup, "MCP_OAUTH_ALLOWED_SUBJECTS", ""),
-		OAuthDiscoveryTimeout:   oauthDiscoveryTimeout,
-		HumanTakeoverURL:        stringValue(lookup, "HUMAN_TAKEOVER_URL", "https://127.0.0.1:3001"),
-		ActionTimeout:           actionTimeout,
-		NavigationTimeout:       navigationTimeout,
-		SessionIdleTimeout:      sessionIdleTimeout,
-		SnapshotMaxChars:        maxChars,
-		SnapshotMaxElements:     maxElements,
-		ObscuraEndpoint:         stringValue(lookup, "OBSCURA_MCP_ENDPOINT", ""),
-		ObscuraMaxPayload:       16 << 20,
-		ObscuraFailureThreshold: 3,
-		ObscuraCooldown:         30 * time.Second,
-		AlwaysChromium:          csvValue(lookup, "MCP_ALWAYS_CHROMIUM_DOMAINS", "x.com,twitter.com,amazon.com,amazon.com.br"),
-	}
-	if cfg.ObscuraFailureThreshold, err = intValue(lookup, "OBSCURA_FAILURE_THRESHOLD", cfg.ObscuraFailureThreshold); err != nil {
-		return Config{}, err
-	}
-	if cfg.ObscuraCooldown, err = durationMS(lookup, "OBSCURA_COOLDOWN_MS", cfg.ObscuraCooldown); err != nil {
-		return Config{}, err
-	}
-	if raw, ok := lookup("OBSCURA_MAX_PAYLOAD_BYTES"); ok && strings.TrimSpace(raw) != "" {
-		cfg.ObscuraMaxPayload, err = strconv.Atoi(strings.TrimSpace(raw))
-		if err != nil || cfg.ObscuraMaxPayload < 1 {
-			return Config{}, fmt.Errorf("OBSCURA_MAX_PAYLOAD_BYTES must be a positive integer")
-		}
+		Host:                  stringValue(lookup, "MCP_HOST", "0.0.0.0"),
+		Port:                  port,
+		CDPEndpoint:           stringValue(lookup, "MCP_CDP_ENDPOINT", "http://127.0.0.1:9222"),
+		APIKey:                stringValue(lookup, "MCP_API_KEY", ""),
+		PublicURL:             stringValue(lookup, "MCP_PUBLIC_URL", ""),
+		OAuthEnabled:          oauthEnabled,
+		OAuthIssuer:           stringValue(lookup, "MCP_OAUTH_ISSUER", ""),
+		OAuthAudience:         stringValue(lookup, "MCP_OAUTH_AUDIENCE", ""),
+		OAuthAllowedSubjects:  csvValue(lookup, "MCP_OAUTH_ALLOWED_SUBJECTS", ""),
+		OAuthDiscoveryTimeout: oauthDiscoveryTimeout,
+		HumanTakeoverURL:      stringValue(lookup, "HUMAN_TAKEOVER_URL", "https://127.0.0.1:3001"),
+		ActionTimeout:         actionTimeout,
+		NavigationTimeout:     navigationTimeout,
+		SessionIdleTimeout:    sessionIdleTimeout,
+		SnapshotMaxChars:      maxChars,
+		SnapshotMaxElements:   maxElements,
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -126,20 +104,6 @@ func (c Config) Validate() error {
 	}
 	if c.SnapshotMaxChars < 1 || c.SnapshotMaxElements < 1 {
 		return fmt.Errorf("snapshot limits must be positive")
-	}
-	if c.ObscuraMaxPayload < 1 {
-		return fmt.Errorf("OBSCURA_MAX_PAYLOAD_BYTES must be positive")
-	}
-	if c.ObscuraFailureThreshold < 1 || c.ObscuraFailureThreshold > 20 {
-		return fmt.Errorf("OBSCURA_FAILURE_THRESHOLD must be between 1 and 20")
-	}
-	if c.ObscuraCooldown < time.Second || c.ObscuraCooldown > 10*time.Minute {
-		return fmt.Errorf("OBSCURA_COOLDOWN_MS must be between 1000 and 600000")
-	}
-	if c.ObscuraEndpoint != "" {
-		if err := validateHTTPURL("OBSCURA_MCP_ENDPOINT", c.ObscuraEndpoint); err != nil {
-			return err
-		}
 	}
 	if err := validateHTTPURL("MCP_CDP_ENDPOINT", c.CDPEndpoint); err != nil {
 		return err

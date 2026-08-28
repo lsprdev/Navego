@@ -65,10 +65,11 @@ type WaitCondition struct {
 }
 
 type Tab struct {
-	ID     string `json:"id"`
-	URL    string `json:"url"`
-	Title  string `json:"title,omitempty"`
-	Active bool   `json:"active"`
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Title   string `json:"title,omitempty"`
+	Active  bool   `json:"active"`
+	Private bool   `json:"private,omitempty"`
 }
 
 type TabsResult struct {
@@ -90,21 +91,15 @@ type TabController interface {
 	CloseTab(context.Context, string) (Snapshot, error)
 }
 
-type RoutingStatus struct {
-	PublicBackend       string     `json:"public_backend"`
-	Mode                string     `json:"mode"`
-	PinnedChromiumHosts int        `json:"pinned_chromium_hosts,omitempty"`
-	CircuitState        string     `json:"circuit_state"`
-	ConsecutiveFailure  int        `json:"consecutive_failures"`
-	RetryAt             *time.Time `json:"retry_at,omitempty"`
+type PrivateTabController interface {
+	NewPrivateTab(context.Context, string) (Snapshot, error)
 }
 
 type Status struct {
-	Connected bool           `json:"connected"`
-	URL       string         `json:"url,omitempty"`
-	Title     string         `json:"title,omitempty"`
-	Backend   string         `json:"backend,omitempty"`
-	Routing   *RoutingStatus `json:"routing,omitempty"`
+	Connected bool   `json:"connected"`
+	URL       string `json:"url,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Backend   string `json:"backend,omitempty"`
 }
 
 type ActionTarget struct {

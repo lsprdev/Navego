@@ -2,6 +2,11 @@
 
 Data de revisão: 28 de agosto de 2026.
 
+> **Documento histórico/descontinuado.** O adapter Obscura e o routing híbrido
+> foram removidos. O desenho vigente está em
+> [Plano Chromium-only do Navego](./chromium-only-plan.md). Este arquivo foi
+> preservado apenas para registrar as decisões e alternativas avaliadas.
+
 Este documento complementa:
 
 - [Planejamento de arquitetura e segurança](./architecture-plan.md);

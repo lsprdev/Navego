@@ -35,8 +35,6 @@ func TestLoadOverridesValues(t *testing.T) {
 		"MCP_PORT":                  "9001",
 		"MCP_ACTION_TIMEOUT_MS":     "2500",
 		"MCP_SNAPSHOT_MAX_ELEMENTS": "42",
-		"OBSCURA_FAILURE_THRESHOLD": "5",
-		"OBSCURA_COOLDOWN_MS":       "45000",
 	}
 	cfg, err := Load(func(name string) (string, bool) {
 		value, ok := values[name]
@@ -45,7 +43,7 @@ func TestLoadOverridesValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != 9001 || cfg.ActionTimeout != 2500*time.Millisecond || cfg.SnapshotMaxElements != 42 || cfg.ObscuraFailureThreshold != 5 || cfg.ObscuraCooldown != 45*time.Second {
+	if cfg.Port != 9001 || cfg.ActionTimeout != 2500*time.Millisecond || cfg.SnapshotMaxElements != 42 {
 		t.Fatalf("overrides not applied: %+v", cfg)
 	}
 }

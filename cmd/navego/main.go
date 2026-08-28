@@ -15,10 +15,7 @@ import (
 	"github.com/lsprdev/Navego/internal/config"
 	"github.com/lsprdev/Navego/internal/httpserver"
 	"github.com/lsprdev/Navego/internal/mcpserver"
-	"github.com/lsprdev/Navego/internal/metadata"
 	"github.com/lsprdev/Navego/internal/oauthresource"
-	"github.com/lsprdev/Navego/internal/obscura"
-	"github.com/lsprdev/Navego/internal/router"
 	"github.com/lsprdev/Navego/internal/takeover"
 )
 
@@ -35,7 +32,7 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	chromiumController := browser.NewManager(
+	controller := browser.NewManager(
 		rootCtx,
 		cfg.CDPEndpoint,
 		cfg.ActionTimeout,
@@ -43,20 +40,6 @@ func main() {
 		cfg.SnapshotMaxChars,
 		cfg.SnapshotMaxElements,
 	)
-	var controller browser.Controller = chromiumController
-	if cfg.ObscuraEndpoint != "" {
-		obscuraClient := obscura.New(cfg.ObscuraEndpoint, nil, cfg.ObscuraMaxPayload)
-		controller = router.New(
-			chromiumController,
-			obscuraClient,
-			cfg.AlwaysChromium,
-			cfg.SnapshotMaxChars,
-			logger,
-			router.WithMetadataFetcher(metadata.New()),
-			router.WithCircuitBreaker(cfg.ObscuraFailureThreshold, cfg.ObscuraCooldown),
-		)
-		logger.Info("hybrid router enabled", "obscura_endpoint", cfg.ObscuraEndpoint, "always_chromium_domains", cfg.AlwaysChromium)
-	}
 	defer func() {
 		if err := controller.Close(); err != nil {
 			logger.Warn("closing browser controller", "error", err)

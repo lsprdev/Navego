@@ -2,44 +2,39 @@
 
 Data da validação: 28 de agosto de 2026.
 
-## Entregue neste milestone
+## Estado atual
 
-O gateway Go híbrido está funcional contra o Chromium persistente e o Obscura
-efêmero locais.
+O Navego usa uma arquitetura Chromium-only. O antigo adapter Obscura, o router
+híbrido e os prefixos `ob:`/`ch:` foram removidos. Leitura pública, navegação
+autenticada, interação, screenshot e PDF usam o mesmo Chromium controlado pelo
+gateway Go.
 
-Componentes implementados:
+Componentes:
 
 - `cmd/navego`: processo HTTP, configuração, logs e graceful shutdown;
-- `internal/mcpserver`: 19 tools MCP com schemas e annotations;
-- `internal/browser`: conexão CDP, refs por geração, snapshots, tabs, find/wait e screenshots;
-- `internal/obscura`: cliente MCP privado, contrato, allowlist, limites e parsing;
-- `internal/metadata`: Open Graph e links HTML com dialer público fixado por IP;
-- `internal/router`: seleção explícita/persistente, hosts autenticados fixados,
-  fallback, circuit breaker e handoff Obscura -> Chromium;
-- `internal/takeover`: bloqueio global enquanto o usuário controla a GUI;
+- `internal/mcpserver`: 19 tools MCP com schemas, annotations e instruções;
+- `internal/browser`: CDP, política de URL, snapshots, refs, metadados, tabs,
+  BrowserContexts privados, find/wait, screenshot e PDF;
+- `internal/takeover`: bloqueio global durante o controle humano;
 - `internal/approval`: approvals aleatórios, expirando e de uso único;
 - `internal/oauthresource`: discovery OIDC, JWT/JWKS, audience, subject allowlist
-  e extração de scopes;
+  e scopes;
 - `internal/httpserver`: Streamable HTTP, limites, headers, CSRF, Bearer local e
   metadata RFC 9728;
-- `cmd/mcp-smoke`: teste real do transporte e do boundary de takeover;
-- `cmd/obscura-smoke`: contract/E2E de leitura, links, PNG e PDF;
-- `Dockerfile`: build multi-stage e runtime distroless/nonroot;
-- `compose.go.yaml`: sidecar Go no namespace de rede do Chromium;
-- `compose.dokploy.yaml`: deploy sem portas públicas e routers Traefik para GUI,
-  MCP e discovery OAuth;
-- `.codex/config.toml`: conexão local do Codex em `127.0.0.1:8001/mcp`.
+- `cmd/mcp-smoke`: teste E2E do transporte e dos boundaries principais;
+- `compose.go.yaml`: gateway no namespace de rede do Chromium;
+- `compose.dokploy.yaml`: deploy Traefik sem CDP ou portas diretas públicas.
 
 Tools expostas:
 
 - `browser_status`
-- `browser_select_backend`
 - `browser_open`
 - `browser_snapshot`
 - `browser_find`
 - `browser_wait`
 - `browser_list_tabs`
 - `browser_new_tab`
+- `browser_new_private_tab`
 - `browser_switch_tab`
 - `browser_close_tab`
 - `browser_click`
@@ -52,13 +47,41 @@ Tools expostas:
 - `browser_commit_action`
 - `browser_cancel_action`
 
-Não há tool de JavaScript arbitrário, cookie/storage, filesystem, shell, upload
-ou CDP bruto. O protótipo Node e suas dependências foram removidos depois da
-validação do gateway Go.
+## Abas persistentes e privadas
 
-## Validação executada
+`browser_new_tab` cria uma aba que compartilha o perfil persistente, incluindo
+cookies e sessões autenticadas.
 
-Passaram:
+`browser_new_private_tab` cria um novo BrowserContext CDP com uma janela visível:
+
+- cookies, cache e storage ficam isolados do perfil persistente;
+- `browser_list_tabs` marca suas páginas com `private: true`;
+- a aba inicial é proprietária do contexto;
+- ao fechar a proprietária, o gateway descarta todo o BrowserContext;
+- após o descarte, uma aba persistente volta a ser a ativa.
+
+Essa separação equivale ao uso prático de uma janela anônima, mas permanece no
+mesmo processo/container e não deve ser tratada como sandbox forte.
+
+## Segurança e fluxo humano
+
+- CDP permanece em loopback e não é publicado no host.
+- O perfil persistente fica no volume `navego-browser-data`.
+- Password inputs nunca aceitam `browser_type`.
+- `browser_request_human_login` é usado somente para senha, MFA, passkey, OTP ou
+  CAPTCHA; menus difíceis continuam automatizados.
+- Ações finais sensíveis não podem usar `browser_click`; exigem
+  `prepare/commit` após confirmação explícita.
+- URLs, redirects e subrequests são validados contra destinos privados e
+  reservados.
+- O gateway é OAuth Resource Server; emissão, consentimento, PKCE e refresh
+  token pertencem a um authorization server estabelecido.
+- Scopes cumulativos: `browser:read`, `browser:capture`, `browser:interact`,
+  `browser:takeover` e `browser:write`.
+
+## Validações
+
+Suíte esperada:
 
 ```text
 go test ./...
@@ -70,108 +93,42 @@ docker compose --env-file .env.production.example -f compose.dokploy.yaml config
 go run ./cmd/mcp-smoke
 ```
 
-O smoke real confirmou inicialização e descoberta MCP, página pública pelo
-Obscura, find/wait, handoff ao Chromium pelo CDP privado, bloqueio durante
-takeover, retomada, tabs e screenshot. O smoke do adapter confirmou Markdown,
-links, PNG e PDF.
+O E2E real anterior no X validou logout protegido, login humano sem transferência
+de credenciais, preenchimento verificado e publicação após approval de uso único.
+O teste de screenshot no ChatGPT também validou o card MCP Apps inline.
 
-Os testes OAuth cobrem discovery OIDC e exigência de PKCE S256, metadata RFC
-9728 nos dois caminhos, JWT assinado, issuer/audience/expiração/subject, união de
-scopes, desafios por tool e publicação de `securitySchemes` no formato do
-ChatGPT. O smoke final também confirmou screenshot CDP após fixar X11.
+O smoke Chromium-only deste milestone também passou:
 
-Também passaram testes reais adicionais:
+1. as duas abas existentes do perfil foram preservadas e não foram marcadas como
+   privadas;
+2. `browser_new_private_tab` abriu `example.com` em uma janela marcada com
+   `private: true`;
+3. um cookie `NavegoIsolation=profile` ficou visível no perfil persistente e o
+   mesmo endpoint retornou `{}` no contexto privado;
+4. ao fechar a aba proprietária, o contexto privado desapareceu e o gateway
+   voltou a uma aba persistente;
+5. o smoke completo confirmou as 19 tools, takeover, resume, tabs e screenshot;
+6. somente o gateway foi recriado; o ID do Chromium e o volume
+   `navego-browser-data` permaneceram iguais.
 
-1. a listagem do InfoMoney foi roteada ao Obscura e retornou `image_url`, site e
-   descrição estruturados;
-2. quando `browser_links` não reconheceu os cards, o fallback HTML seguro
-   devolveu o link exato da notícia em `browser_find`;
-3. uma falha transitória do Obscura em uma matéria caiu no Chromium, que devolveu
-   os mesmos metadados do DOM;
-4. abrir, alternar e fechar uma aba temporária funcionou;
-5. a mesma aba e target ID sobreviveram à recriação somente do gateway Go.
+## Decisões
 
-O E2E real no X também passou:
+- Um único Chromium reduz código, memória operacional, ambiguidades de routing e
+  divergências de renderização.
+- Páginas públicas que pedirem isolamento usam BrowserContext privado em vez de
+  outro engine.
+- O Chromium usa `PIXELFLUX_WAYLAND=false`; a imagem testada bloqueou
+  `Page.captureScreenshot` no Wayland, enquanto X11 preservou a captura CDP.
+- Gateway e Chromium compartilham namespace de rede para manter CDP em loopback.
+- PocketBase não é necessário enquanto houver um usuário e estado efêmero.
+- O gateway não cancela targets persistentes no shutdown normal, preservando
+  abas quando apenas o sidecar Go é recriado.
 
-1. logout protegido por `prepare/commit`;
-2. pausa global para login humano pela GUI;
-3. retomada sem transferir senha ou OTP pelo MCP;
-4. preenchimento e verificação exata do rascunho;
-5. aprovação vinculada ao texto e publicação de uso único.
+## Limitações e próximos passos
 
-O teste revelou que o X possui uma confirmação de logout em duas etapas. As
-duas ficam protegidas e `logout`, `sign out` e `sair` passaram a ser classificados
-como ações sensíveis.
-
-## Decisões deste milestone
-
-- O gateway Go usa `8001` localmente.
-- O CDP permanece em loopback e não é publicado no host.
-- O MCP interno do Obscura não é publicado no host.
-- A imagem Obscura está fixada em `v0.2.1` pelo digest
-  `sha256:e65cb455fc67543283da6901e8735c45aab5421e2ced8879b0a1fa70a4e38a2d`.
-- O Chromium usa `PIXELFLUX_WAYLAND=false`: a imagem testada bloqueou
-  `Page.captureScreenshot` no compositor Wayland, enquanto X11 preserva a
-  captura CDP determinística.
-- Somente `navigate`, `snapshot`, `markdown`, `links`, `screenshot` e `pdf`
-  atravessam o adapter; tools internas perigosas não são chamáveis.
-- Metadados e o fallback de links usam apenas HTTP GET público, tamanho limitado,
-  redirects revalidados e um dialer que rejeita e não disca IPs privados.
-- O circuit breaker abre após três falhas, espera 30 segundos e permite uma única
-  tentativa em `half_open`; ambos os valores são configuráveis.
-- Os prefixos `ob:` e `ch:` selecionam respectivamente Obscura e Chromium; o
-  modo explícito permanece ativo até `auto` ou uma nova seleção.
-- Um takeover de login fixa o host inicial e o host final pós-SSO ao Chromium,
-  impedindo que URLs autenticadas voltem ao Obscura sem cookies.
-- `browser_request_human_login` é reservado para autenticação, MFA, passkey e
-  CAPTCHA; menus difíceis devem usar `browser_select_backend` com Chromium.
-- O gateway se reconecta a uma aba existente e não cancela targets no shutdown
-  normal, preservando as abas no Chromium separado.
-- O gateway e o Chromium compartilham o namespace de rede.
-- PocketBase não é necessário enquanto houver somente um usuário e estado
-  efêmero de takeover/approval.
-- Ações finais sensíveis não podem usar `browser_click`; exigem
-  `prepare/commit`.
-- Password inputs nunca aceitam `browser_type`.
-- O gateway é um OAuth Resource Server; emissão de tokens, consentimento, PKCE
-  e refresh tokens ficam em um authorization server estabelecido.
-- As tools exigem scopes cumulativos `browser:read`, `browser:capture`,
-  `browser:interact`, `browser:takeover` e `browser:write`.
-- Como o SDK MCP Go v1.7.0 ainda não modela a extensão OpenAI
-  `securitySchemes` no nível principal, um adaptador limitado a `tools/list`
-  espelha o valor de `_meta` no formato exigido pelo ChatGPT. A autorização não
-  depende desse adaptador e continua sendo validada no servidor.
-
-## Limitações conhecidas
-
-- O OAuth Resource Server está implementado, mas Auth0, CIMD e o cliente do
-  ChatGPT ainda não foram configurados com credenciais reais. Ainda não há
-  auditoria persistente nem multiusuário.
-- O Chromium agora intercepta requests, valida DNS e bloqueia redirects e
-  subrequests privadas. Ainda falta uma política de egress externa para remover
-  completamente a corrida TOCTOU entre a resolução do gateway e a do Chromium.
-- A detecção genérica de ações sensíveis depende do nome acessível do controle.
-  Antes de produção haverá políticas e testes específicos para X e outros sites.
-- Takeover e approvals são globais e ficam em memória; reiniciar o gateway os
-  perde de forma segura.
-- Não há ainda downloads, seleção de opções ou teclas especiais.
-- O estado do circuit breaker não sobrevive ao restart do gateway; isso é
-  aceitável no modo single-user e poderá ir ao PocketBase junto da auditoria.
-- O Compose de produção e os routers Traefik estão versionados. O deploy no
-  Dokploy, as policies do Cloudflare Access, DNS e secrets ainda precisam ser
-  aplicados na infraestrutura externa.
-- Os resultados de navegação ainda carregam snapshots extensos. A otimização
-  de tokens foi deliberadamente movida para um milestone futuro: remover
-  representações duplicadas, devolver deltas compactos depois de ações e
-  limitar o snapshot aos elementos relevantes/paginados.
-
-## Próxima sequência
-
-1. Configurar Auth0, Cloudflare Access e Dokploy e executar o E2E OAuth remoto
-   no ChatGPT.
-2. Adicionar controle externo de egress para fechar a janela de DNS rebinding.
-3. Adicionar downloads/select/press-key conforme os primeiros sites exigirem.
-4. Adicionar auditoria persistente e vincular approvals à identidade OAuth;
-   introduzir PocketBase apenas quando esse estado realmente precisar persistir.
-5. Otimizar snapshots e respostas MCP para reduzir tokens antes da validação
-   de custo e do uso recorrente em produção.
+1. Validar novamente o connector do ChatGPT após atualizar o schema das tools.
+2. Configurar Auth0, Cloudflare Access e Dokploy com secrets reais.
+3. Adicionar egress externo contra DNS rebinding.
+4. Implementar hover, teclas especiais, select/combobox e menus complexos.
+5. Adicionar downloads e auditoria persistente conforme a necessidade.
+6. Reduzir tokens com snapshots incrementais e respostas mais compactas.

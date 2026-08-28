@@ -26,8 +26,10 @@ const (
 )
 
 type tabContext struct {
-	context context.Context
-	cancel  context.CancelFunc
+	context            context.Context
+	cancel             context.CancelFunc
+	browserContextID   cdp.BrowserContextID
+	ownsBrowserContext bool
 }
 
 type refInfo struct {
@@ -51,6 +53,8 @@ type Manager struct {
 	browserContext   context.Context
 	browserCancel    context.CancelFunc
 	tabContexts      map[target.ID]tabContext
+	privateTargets   map[target.ID]cdp.BrowserContextID
+	privateContexts  map[cdp.BrowserContextID]struct{}
 	activeTarget     target.ID
 	generation       uint64
 	refs             map[string]refInfo
@@ -73,6 +77,8 @@ func NewManager(
 		maxElements:       maxElements,
 		urlPolicy:         NewPublicURLPolicy(),
 		refs:              make(map[string]refInfo),
+		privateTargets:    make(map[target.ID]cdp.BrowserContextID),
+		privateContexts:   make(map[cdp.BrowserContextID]struct{}),
 	}
 }
 
@@ -238,6 +244,91 @@ func (m *Manager) NewTab(ctx context.Context, rawURL string) (Snapshot, error) {
 	return m.snapshotLocked(op)
 }
 
+// NewPrivateTab creates one visible page inside an ephemeral Chromium
+// BrowserContext. Cookies, local storage and cache are isolated from the
+// persistent profile, and closing the owning tab disposes the whole context.
+func (m *Manager) NewPrivateTab(ctx context.Context, rawURL string) (Snapshot, error) {
+	policyContext, policyCancel := context.WithTimeout(ctx, requestPolicyTimeout)
+	u, err := m.urlPolicy.Validate(policyContext, rawURL)
+	policyCancel()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.ensureConnectedLocked(); err != nil {
+		return Snapshot{}, err
+	}
+	op, cancel := m.operationContext(ctx, m.actionTimeout)
+	tabs, err := m.listTabsLocked(op)
+	cancel()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if len(tabs.Tabs) >= maxManagedTabs {
+		return Snapshot{}, fmt.Errorf("cannot open more than %d Chromium tabs", maxManagedTabs)
+	}
+
+	previousTarget := m.activeTarget
+	var (
+		browserContextID cdp.BrowserContextID
+		targetID         target.ID
+	)
+	op, cancel = m.operationContext(ctx, m.actionTimeout)
+	err = chromedp.Run(op, chromedp.ActionFunc(func(ctx context.Context) error {
+		chromedpContext := chromedp.FromContext(ctx)
+		if chromedpContext == nil || chromedpContext.Browser == nil {
+			return errors.New("Chromium connection does not expose a browser executor")
+		}
+		browserExecutor := cdp.WithExecutor(ctx, chromedpContext.Browser)
+		var createErr error
+		browserContextID, createErr = target.CreateBrowserContext().WithDisposeOnDetach(true).Do(browserExecutor)
+		if createErr != nil {
+			return createErr
+		}
+		targetID, createErr = target.CreateTarget("about:blank").
+			WithBrowserContextID(browserContextID).
+			WithNewWindow(true).
+			WithBackground(false).
+			Do(browserExecutor)
+		return createErr
+	}))
+	cancel()
+	if err != nil {
+		if browserContextID != "" {
+			m.disposeBrowserContextBestEffortLocked(ctx, browserContextID)
+		}
+		return Snapshot{}, fmt.Errorf("create private Chromium context: %w", err)
+	}
+	m.privateContexts[browserContextID] = struct{}{}
+	m.privateTargets[targetID] = browserContextID
+	if err := m.activateTargetLocked(ctx, targetID); err != nil {
+		delete(m.privateTargets, targetID)
+		delete(m.privateContexts, browserContextID)
+		m.disposeBrowserContextBestEffortLocked(ctx, browserContextID)
+		return Snapshot{}, err
+	}
+	managed := m.tabContexts[targetID]
+	managed.browserContextID = browserContextID
+	managed.ownsBrowserContext = true
+	m.tabContexts[targetID] = managed
+
+	op, cancel = m.operationContext(ctx, m.navigationTimeout)
+	defer cancel()
+	if err := chromedp.Run(op, chromedp.Navigate(u.String()), chromedp.Sleep(250*time.Millisecond)); err != nil {
+		if previousTarget != "" {
+			_ = m.activateTargetLocked(ctx, previousTarget)
+		}
+		managed.cancel()
+		delete(m.tabContexts, targetID)
+		delete(m.privateTargets, targetID)
+		delete(m.privateContexts, browserContextID)
+		m.disposeBrowserContextBestEffortLocked(ctx, browserContextID)
+		return Snapshot{}, fmt.Errorf("navigate private tab to %s: %w", u.Redacted(), err)
+	}
+	return m.snapshotLocked(op)
+}
+
 func (m *Manager) SwitchTab(ctx context.Context, tabID string) (Snapshot, error) {
 	tabID = strings.TrimSpace(tabID)
 	if tabID == "" || len(tabID) > 128 {
@@ -288,18 +379,26 @@ func (m *Manager) CloseTab(ctx context.Context, tabID string) (Snapshot, error) 
 		return Snapshot{}, errors.New("cannot close the last Chromium tab")
 	}
 	closingID := target.ID(tabID)
+	closingManaged, managedClosing := m.tabContexts[closingID]
+	closingContextID := m.privateTargets[closingID]
 	if closingID == m.activeTarget {
+		replacementFound := false
 		for _, candidate := range tabs.Tabs {
-			if candidate.ID != tabID {
+			candidateID := target.ID(candidate.ID)
+			if candidate.ID != tabID && (!closingManaged.ownsBrowserContext || m.privateTargets[candidateID] != closingContextID) {
 				if err := m.activateTargetLocked(ctx, target.ID(candidate.ID)); err != nil {
 					return Snapshot{}, fmt.Errorf("activate replacement tab: %w", err)
 				}
+				replacementFound = true
 				break
 			}
 		}
+		if !replacementFound {
+			return Snapshot{}, errors.New("cannot close the active private context without a persistent replacement tab")
+		}
 	}
-	if managed, exists := m.tabContexts[closingID]; exists {
-		managed.cancel()
+	if managedClosing {
+		closingManaged.cancel()
 		delete(m.tabContexts, closingID)
 	} else {
 		closingContext, closingCancel := chromedp.NewContext(m.allocatorContext, chromedp.WithTargetID(closingID))
@@ -311,6 +410,20 @@ func (m *Manager) CloseTab(ctx context.Context, tabID string) (Snapshot, error) 
 		closingCancel()
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("attach Chromium tab %s for closing: %w", tabID, err)
+		}
+	}
+	delete(m.privateTargets, closingID)
+	if closingManaged.ownsBrowserContext && closingManaged.browserContextID != "" {
+		m.disposeBrowserContextBestEffortLocked(ctx, closingManaged.browserContextID)
+		delete(m.privateContexts, closingManaged.browserContextID)
+		for id, contextID := range m.privateTargets {
+			if contextID == closingManaged.browserContextID {
+				if managed, exists := m.tabContexts[id]; exists {
+					managed.cancel()
+					delete(m.tabContexts, id)
+				}
+				delete(m.privateTargets, id)
+			}
 		}
 	}
 	m.refs = make(map[string]refInfo)
@@ -602,6 +715,8 @@ func (m *Manager) Close() error {
 	m.allocatorContext = nil
 	m.allocatorCancel = nil
 	m.tabContexts = nil
+	m.privateTargets = make(map[target.ID]cdp.BrowserContextID)
+	m.privateContexts = make(map[cdp.BrowserContextID]struct{})
 	m.activeTarget = ""
 	m.refs = make(map[string]refInfo)
 	return nil
@@ -683,6 +798,8 @@ func (m *Manager) ensureConnectedLocked() error {
 	m.tabContexts = map[target.ID]tabContext{
 		m.activeTarget: {context: m.browserContext, cancel: m.browserCancel},
 	}
+	m.privateTargets = make(map[target.ID]cdp.BrowserContextID)
+	m.privateContexts = make(map[cdp.BrowserContextID]struct{})
 	m.refs = make(map[string]refInfo)
 	return nil
 }
@@ -712,20 +829,27 @@ func (m *Manager) listTabsLocked(ctx context.Context) (TabsResult, error) {
 		return TabsResult{}, fmt.Errorf("list Chromium tabs: %w", err)
 	}
 	result := TabsResult{Tabs: []Tab{}}
+	privateTargets := make(map[target.ID]cdp.BrowserContextID)
 	for _, info := range targets {
 		if info == nil || info.Type != "page" {
 			continue
 		}
 		result.Tabs = append(result.Tabs, Tab{
-			ID:     string(info.TargetID),
-			URL:    info.URL,
-			Title:  info.Title,
-			Active: info.TargetID == m.activeTarget,
+			ID:      string(info.TargetID),
+			URL:     info.URL,
+			Title:   info.Title,
+			Active:  info.TargetID == m.activeTarget,
+			Private: false,
 		})
+		if _, private := m.privateContexts[info.BrowserContextID]; private {
+			result.Tabs[len(result.Tabs)-1].Private = true
+			privateTargets[info.TargetID] = info.BrowserContextID
+		}
 		if len(result.Tabs) >= 50 {
 			break
 		}
 	}
+	m.privateTargets = privateTargets
 	return result, nil
 }
 
@@ -754,7 +878,11 @@ func (m *Manager) activateTargetLocked(request context.Context, targetID target.
 		tabCancel()
 		return err
 	}
-	m.tabContexts[targetID] = tabContext{context: tabCtx, cancel: tabCancel}
+	m.tabContexts[targetID] = tabContext{
+		context:          tabCtx,
+		cancel:           tabCancel,
+		browserContextID: m.privateTargets[targetID],
+	}
 	m.browserContext = tabCtx
 	m.browserCancel = tabCancel
 	m.activeTarget = targetID
@@ -773,6 +901,21 @@ func (m *Manager) closeTargetBestEffortLocked(request context.Context, targetID 
 	stopRequest()
 	timeout.Stop()
 	closingCancel()
+}
+
+func (m *Manager) disposeBrowserContextBestEffortLocked(request context.Context, browserContextID cdp.BrowserContextID) {
+	if browserContextID == "" || m.browserContext == nil || m.browserContext.Err() != nil {
+		return
+	}
+	op, cancel := m.operationContext(request, m.actionTimeout)
+	defer cancel()
+	_ = chromedp.Run(op, chromedp.ActionFunc(func(ctx context.Context) error {
+		chromedpContext := chromedp.FromContext(ctx)
+		if chromedpContext == nil || chromedpContext.Browser == nil {
+			return nil
+		}
+		return target.DisposeBrowserContext(browserContextID).Do(cdp.WithExecutor(ctx, chromedpContext.Browser))
+	}))
 }
 
 func tabExists(tabs TabsResult, tabID string) bool {
@@ -825,6 +968,8 @@ func (m *Manager) resetLocked() {
 	m.browserContext = nil
 	m.browserCancel = nil
 	m.tabContexts = nil
+	m.privateTargets = make(map[target.ID]cdp.BrowserContextID)
+	m.privateContexts = make(map[cdp.BrowserContextID]struct{})
 	m.activeTarget = ""
 	m.allocatorContext = nil
 	m.allocatorCancel = nil

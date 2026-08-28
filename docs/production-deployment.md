@@ -13,7 +13,7 @@ Este runbook publica:
 
 O arquivo de deploy é [`compose.dokploy.yaml`](../compose.dokploy.yaml). Ele não
 publica portas no host. O Traefik alcança os ports `3000` e `8001` no namespace
-de rede do `navego-browser`; CDP e Obscura continuam privados.
+de rede do `navego-browser`; o CDP continua privado em loopback.
 
 ## 1. Configurar o authorization server
 
@@ -90,15 +90,15 @@ Referências:
    para o Environment do Dokploy e substitua os placeholders.
 5. Confirme que a network externa `dokploy-network` existe. A instalação oficial
    do Dokploy já a cria.
-6. Faça deploy e confirme que os três containers iniciaram.
+6. Faça deploy e confirme que os dois containers iniciaram.
 
 O volume persistente tem nome fixo `navego-browser-data`. Inclua-o no
 backup do servidor. Ele contém cookies, sessões e o perfil do Chromium e deve ser
 tratado como dado sensível.
 
 A imagem base do Chromium foi fixada na versão testada
-`version-be140933@sha256:4c7b9086...cee21d`; o Obscura também está fixado por
-digest. Atualizações devem passar pelos smokes antes de trocar os pins.
+`version-be140933@sha256:4c7b9086...cee21d`. Atualizações devem passar pelos
+smokes antes de trocar o pin.
 `PIXELFLUX_WAYLAND=false` também é intencional: no teste local desta versão, o
 CDP `Page.captureScreenshot` ficou bloqueado no compositor Wayland. O fallback
 X11 eliminou a incompatibilidade e deve continuar até uma atualização passar
@@ -131,7 +131,7 @@ Resultados esperados:
 - issuer metadata: issuer exato, JWKS e `code_challenge_methods_supported`
   contendo `S256`;
 - `/`: tela de login do Cloudflare Access para uma sessão não autenticada;
-- portas `3000`, `3001`, `8001`, `8080` e `9222`: inacessíveis diretamente pela
+- portas `3000`, `3001`, `8001` e `9222`: inacessíveis diretamente pela
   Internet.
 
 Depois adicione `https://mcp.browser.lspr.dev/mcp` no criador de plugins do ChatGPT,

@@ -1,19 +1,4 @@
 services:
-  obscura:
-    image: h4ckf0r0day/obscura@sha256:e65cb455fc67543283da6901e8735c45aab5421e2ced8879b0a1fa70a4e38a2d
-    command: ["mcp", "--http", "--host", "0.0.0.0", "--port", "8080"]
-    expose:
-      - "8080"
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    init: true
-    restart: unless-stopped
-
   navego-browser:
     ports:
       - "127.0.0.1:8001:8001"
@@ -27,8 +12,6 @@ services:
     depends_on:
       navego-browser:
         condition: service_healthy
-      obscura:
-        condition: service_started
     environment:
       TZ: ${TZ:-America/Sao_Paulo}
       MCP_HOST: 0.0.0.0
@@ -46,11 +29,6 @@ services:
       MCP_SESSION_IDLE_TIMEOUT_MS: ${MCP_SESSION_IDLE_TIMEOUT_MS:-1800000}
       MCP_SNAPSHOT_MAX_CHARS: ${MCP_SNAPSHOT_MAX_CHARS:-12000}
       MCP_SNAPSHOT_MAX_ELEMENTS: ${MCP_SNAPSHOT_MAX_ELEMENTS:-150}
-      OBSCURA_MCP_ENDPOINT: http://obscura:8080/mcp
-      OBSCURA_MAX_PAYLOAD_BYTES: ${OBSCURA_MAX_PAYLOAD_BYTES:-16777216}
-      OBSCURA_FAILURE_THRESHOLD: ${OBSCURA_FAILURE_THRESHOLD:-3}
-      OBSCURA_COOLDOWN_MS: ${OBSCURA_COOLDOWN_MS:-30000}
-      MCP_ALWAYS_CHROMIUM_DOMAINS: ${MCP_ALWAYS_CHROMIUM_DOMAINS:-x.com,twitter.com,amazon.com,amazon.com.br}
       HUMAN_TAKEOVER_URL: ${HUMAN_TAKEOVER_URL:-https://127.0.0.1:3001}
     read_only: true
     tmpfs:

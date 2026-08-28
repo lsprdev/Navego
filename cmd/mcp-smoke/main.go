@@ -39,7 +39,7 @@ func main() {
 	fmt.Printf("MCP connected: %d tools\n%s\n", len(names), strings.Join(names, ", "))
 
 	call(ctx, session, "browser_status", map[string]any{})
-	call(ctx, session, "browser_open", map[string]any{"url": targetURL, "backend": "auto"})
+	call(ctx, session, "browser_open", map[string]any{"url": targetURL})
 	call(ctx, session, "browser_find", map[string]any{"query": "Example Domain", "limit": 3})
 	call(ctx, session, "browser_wait", map[string]any{"text": "Example Domain", "timeout_ms": 2_000})
 

@@ -14,28 +14,18 @@ import (
 )
 
 type fakeBrowser struct {
-	snapshot             browser.Snapshot
-	commits              int
-	selectedBackend      browser.BackendMode
-	openedBackend        browser.BackendMode
-	completedHumanLogins int
+	snapshot    browser.Snapshot
+	commits     int
+	opens       int
+	privateTabs int
 }
 
 func (f *fakeBrowser) Status(context.Context) (browser.Status, error) {
 	return browser.Status{Connected: true, URL: f.snapshot.URL, Title: f.snapshot.Title}, nil
 }
-func (f *fakeBrowser) Open(context.Context, string) (browser.Snapshot, error) { return f.snapshot, nil }
-func (f *fakeBrowser) OpenWithBackend(_ context.Context, _ string, backend browser.BackendMode) (browser.Snapshot, error) {
-	f.openedBackend = backend
+func (f *fakeBrowser) Open(context.Context, string) (browser.Snapshot, error) {
+	f.opens++
 	return f.snapshot, nil
-}
-func (f *fakeBrowser) SelectBackend(_ context.Context, backend browser.BackendMode) (browser.Snapshot, error) {
-	f.selectedBackend = backend
-	return f.snapshot, nil
-}
-func (f *fakeBrowser) CompleteHumanTakeover(context.Context) error {
-	f.completedHumanLogins++
-	return nil
 }
 func (f *fakeBrowser) Snapshot(context.Context) (browser.Snapshot, error) { return f.snapshot, nil }
 func (f *fakeBrowser) Find(_ context.Context, query string, limit int) (browser.FindResult, error) {
@@ -48,6 +38,10 @@ func (f *fakeBrowser) ListTabs(context.Context) (browser.TabsResult, error) {
 	return browser.TabsResult{Tabs: []browser.Tab{{ID: "tab-1", URL: f.snapshot.URL, Title: f.snapshot.Title, Active: true}}}, nil
 }
 func (f *fakeBrowser) NewTab(context.Context, string) (browser.Snapshot, error) {
+	return f.snapshot, nil
+}
+func (f *fakeBrowser) NewPrivateTab(context.Context, string) (browser.Snapshot, error) {
+	f.privateTabs++
 	return f.snapshot, nil
 }
 func (f *fakeBrowser) SwitchTab(context.Context, string) (browser.Snapshot, error) {
@@ -107,7 +101,7 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	for _, tool := range listed.Tools {
 		names[tool.Name] = true
 	}
-	for _, name := range []string{"browser_select_backend", "browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
+	for _, name := range []string{"browser_open", "browser_snapshot", "browser_find", "browser_wait", "browser_list_tabs", "browser_new_tab", "browser_new_private_tab", "browser_switch_tab", "browser_close_tab", "browser_type", "browser_export_pdf", "browser_request_human_login", "browser_resume_after_human", "browser_prepare_action", "browser_commit_action"} {
 		if !names[name] {
 			t.Fatalf("tool %s was not advertised", name)
 		}
@@ -139,60 +133,36 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	if err != nil || resumed.IsError {
 		t.Fatalf("resume: result=%+v err=%v", resumed, err)
 	}
-	if fake.completedHumanLogins != 1 {
-		t.Fatalf("completed human logins = %d, want 1", fake.completedHumanLogins)
-	}
 }
 
-func TestExplicitBackendSelection(t *testing.T) {
+func TestOpenAndPrivateTab(t *testing.T) {
 	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://example.com", Title: "Example", Backend: "chromium", Generation: 1}}
 	server := New(fake, takeover.New(), approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil)
 	client := connectTestClient(t, server.MCP)
 
 	opened, err := client.CallTool(t.Context(), &mcp.CallToolParams{
 		Name:      "browser_open",
-		Arguments: map[string]any{"url": "https://example.com", "backend": "ch"},
+		Arguments: map[string]any{"url": "https://example.com"},
 	})
 	if err != nil || opened.IsError {
 		t.Fatalf("open with Chromium: result=%+v err=%v", opened, err)
 	}
-	if fake.openedBackend != browser.BackendModeChromium {
-		t.Fatalf("opened backend = %q, want chromium", fake.openedBackend)
-	}
-	missing, err := client.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      "browser_open",
-		Arguments: map[string]any{"url": "https://example.com"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !missing.IsError {
-		t.Fatalf("browser_open accepted a missing backend: %+v", missing)
+	if fake.opens != 1 {
+		t.Fatalf("opens = %d, want 1", fake.opens)
 	}
 
-	selected, err := client.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      "browser_select_backend",
-		Arguments: map[string]any{"backend": "ob"},
+	privateTab, err := client.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "browser_new_private_tab",
+		Arguments: map[string]any{"url": "https://example.com/private"},
 	})
-	if err != nil || selected.IsError {
-		t.Fatalf("select Obscura: result=%+v err=%v", selected, err)
+	if err != nil || privateTab.IsError {
+		t.Fatalf("open private tab: result=%+v err=%v", privateTab, err)
 	}
-	if fake.selectedBackend != browser.BackendModeObscura {
-		t.Fatalf("selected backend = %q, want obscura", fake.selectedBackend)
+	if fake.privateTabs != 1 {
+		t.Fatalf("private tabs = %d, want 1", fake.privateTabs)
 	}
-
-	invalid, err := client.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      "browser_select_backend",
-		Arguments: map[string]any{"backend": "other"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !invalid.IsError {
-		t.Fatalf("invalid backend was accepted: %+v", invalid)
-	}
-	if !strings.Contains(Instructions, `"ob:"`) || !strings.Contains(Instructions, `"ch:"`) {
-		t.Fatal("server instructions do not document ob:/ch: routing")
+	if !strings.Contains(Instructions, "private") || strings.Contains(Instructions, `"ob:"`) || strings.Contains(Instructions, `"ch:"`) {
+		t.Fatal("server instructions do not describe Chromium-only private browsing")
 	}
 }
 

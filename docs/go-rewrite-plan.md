@@ -6,7 +6,7 @@ as diferenças para o desenho completo estão em
 
 Este documento complementa o [planejamento de arquitetura e segurança](architecture-plan.md).
 
-Evolução deste desenho: [arquitetura híbrida em Go e deploy](./hybrid-go-deployment-plan.md).
+Evolução deste desenho: [arquitetura Chromium-only em Go](./chromium-only-plan.md).
 
 ## Resumo da decisão
 

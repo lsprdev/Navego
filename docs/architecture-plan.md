@@ -2,7 +2,7 @@
 
 Status: baseline para a versão pessoal e privada do Navego.
 
-Evolução deste desenho: [arquitetura híbrida em Go e deploy](./hybrid-go-deployment-plan.md).
+Evolução deste desenho: [arquitetura Chromium-only em Go](./chromium-only-plan.md).
 
 ## Objetivo
 
