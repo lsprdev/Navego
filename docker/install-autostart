@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# LinuxServer copies these defaults only when a profile is first created. Install
+# them on every container start so existing persistent profiles also receive MCP.
+install -D -m 0755 /defaults/autostart /config/.config/openbox/autostart
+install -D -m 0755 /defaults/autostart_wayland /config/.config/labwc/autostart

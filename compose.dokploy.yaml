@@ -1,0 +1,133 @@
+name: navego
+
+services:
+  obscura:
+    image: h4ckf0r0day/obscura@sha256:e65cb455fc67543283da6901e8735c45aab5421e2ced8879b0a1fa70a4e38a2d
+    command: ["mcp", "--http", "--host", "0.0.0.0", "--port", "8080"]
+    expose:
+      - "8080"
+    networks:
+      - navego-internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  navego-browser:
+    build:
+      context: .
+      dockerfile: docker/chromium/Dockerfile
+    image: navego-browser:be140933
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-America/Sao_Paulo}
+      CUSTOM_USER: ${CHROMIUM_USER:-abc}
+      PASSWORD: ${CHROMIUM_PASSWORD:-}
+      TITLE: Navego
+      RESTART_APP: "true"
+      # Prefer deterministic CDP screenshots over Wayland zero-copy streaming.
+      PIXELFLUX_WAYLAND: ${PIXELFLUX_WAYLAND:-false}
+      CHROME_CLI: >-
+        --remote-debugging-port=9222
+        --remote-debugging-address=127.0.0.1
+    expose:
+      - "3000"
+      - "8001"
+    networks:
+      - navego-internal
+      - dokploy-network
+    volumes:
+      - browser-data:/config
+    shm_size: "1gb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9222/json/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.navego-mcp.rule=Host(`mcp.browser.lspr.dev`) && (Path(`/mcp`) || Path(`/.well-known/oauth-protected-resource`) || Path(`/.well-known/oauth-protected-resource/mcp`))"
+      - "traefik.http.routers.navego-mcp.entrypoints=websecure"
+      - "traefik.http.routers.navego-mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.navego-mcp.service=navego-mcp"
+      - "traefik.http.services.navego-mcp.loadbalancer.server.port=8001"
+      - "traefik.http.routers.navego-gui.rule=Host(`browser.lspr.dev`)"
+      - "traefik.http.routers.navego-gui.entrypoints=websecure"
+      - "traefik.http.routers.navego-gui.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.navego-gui.service=navego-gui"
+      - "traefik.http.services.navego-gui.loadbalancer.server.port=3000"
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  navego-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: navego-gateway:production
+    network_mode: service:navego-browser
+    depends_on:
+      navego-browser:
+        condition: service_healthy
+        restart: true
+      obscura:
+        condition: service_started
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8001
+      MCP_CDP_ENDPOINT: http://127.0.0.1:9222
+      MCP_PUBLIC_URL: https://mcp.browser.lspr.dev/mcp
+      MCP_OAUTH_ENABLED: "true"
+      MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER}
+      MCP_OAUTH_AUDIENCE: https://mcp.browser.lspr.dev/mcp
+      MCP_OAUTH_ALLOWED_SUBJECTS: ${MCP_OAUTH_ALLOWED_SUBJECTS}
+      MCP_OAUTH_DISCOVERY_TIMEOUT_MS: ${MCP_OAUTH_DISCOVERY_TIMEOUT_MS:-10000}
+      MCP_ACTION_TIMEOUT_MS: ${MCP_ACTION_TIMEOUT_MS:-10000}
+      MCP_NAVIGATION_TIMEOUT_MS: ${MCP_NAVIGATION_TIMEOUT_MS:-60000}
+      MCP_SESSION_IDLE_TIMEOUT_MS: ${MCP_SESSION_IDLE_TIMEOUT_MS:-1800000}
+      MCP_SNAPSHOT_MAX_CHARS: ${MCP_SNAPSHOT_MAX_CHARS:-12000}
+      MCP_SNAPSHOT_MAX_ELEMENTS: ${MCP_SNAPSHOT_MAX_ELEMENTS:-150}
+      OBSCURA_MCP_ENDPOINT: http://obscura:8080/mcp
+      OBSCURA_MAX_PAYLOAD_BYTES: ${OBSCURA_MAX_PAYLOAD_BYTES:-16777216}
+      OBSCURA_FAILURE_THRESHOLD: ${OBSCURA_FAILURE_THRESHOLD:-3}
+      OBSCURA_COOLDOWN_MS: ${OBSCURA_COOLDOWN_MS:-30000}
+      MCP_ALWAYS_CHROMIUM_DOMAINS: ${MCP_ALWAYS_CHROMIUM_DOMAINS:-x.com,twitter.com,amazon.com,amazon.com.br}
+      HUMAN_TAKEOVER_URL: https://browser.lspr.dev
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  browser-data:
+    name: navego-browser-data
+
+networks:
+  navego-internal:
+    internal: true
+  dokploy-network:
+    external: true

@@ -1,0 +1,6 @@
+[mcp_servers.navego]
+url = "http://127.0.0.1:8001/mcp"
+enabled = true
+startup_timeout_sec = 20
+tool_timeout_sec = 70
+default_tools_approval_mode = "writes"
