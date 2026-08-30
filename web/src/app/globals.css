@@ -1,0 +1,352 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-instrument-sans);
+  --font-mono: var(--font-ibm-plex-mono);
+  --font-heading: var(--font-instrument-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: dark;
+  --background: #070707;
+  --foreground: #f3f3f1;
+  --card: #111111;
+  --card-foreground: #f3f3f1;
+  --popover: #171717;
+  --popover-foreground: #f3f3f1;
+  --primary: #03c872;
+  --primary-foreground: #02140b;
+  --secondary: #232323;
+  --secondary-foreground: #f3f3f1;
+  --muted: #232323;
+  --muted-foreground: #8a8a8a;
+  --accent: #2f2f2f;
+  --accent-foreground: #ffffff;
+  --destructive: #ff626b;
+  --border: #313131;
+  --input: #313131;
+  --ring: #03c872;
+  --chart-1: #03c872;
+  --chart-2: #62d99f;
+  --chart-3: #7f91ff;
+  --chart-4: #d9b85f;
+  --chart-5: #aa85ff;
+  --radius: 0.8rem;
+  --sidebar: #111111;
+  --sidebar-foreground: #f3f3f1;
+  --sidebar-primary: #03c872;
+  --sidebar-primary-foreground: #02140b;
+  --sidebar-accent: #232323;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #313131;
+  --sidebar-ring: #03c872;
+  --surface-deep: #070707;
+  --surface: #111111;
+  --surface-raised: #232323;
+  --surface-hover: #2f2f2f;
+  --quiet-foreground: #777777;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    scroll-behavior: smooth;
+  }
+}
+
+::selection {
+  background: color-mix(in oklch, var(--primary), transparent 35%);
+  color: var(--primary-foreground);
+}
+
+@keyframes navego-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.signal-pulse {
+  animation: navego-pulse 2.4s ease-in-out infinite;
+}
+
+.brand-mark {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 5%),
+    0 12px 28px rgb(0 0 0 / 28%);
+}
+
+.navy-root {
+  --navy-eye-x: 0px;
+  --navy-eye-y: 0px;
+  --navy-tilt: 0deg;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+}
+
+.navy-body {
+  transform: rotate(var(--navy-tilt));
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.navy-eye {
+  transform: translate(var(--navy-eye-x), var(--navy-eye-y));
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.navy-eye-secondary {
+  transition-duration: 190ms;
+}
+
+.landing-page {
+  background:
+    radial-gradient(circle at 12% 14%, rgb(3 200 114 / 5%), transparent 24rem),
+    var(--background);
+}
+
+.landing-nav {
+  box-shadow: 0 16px 50px rgb(0 0 0 / 28%);
+}
+
+.landing-grid {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 3.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 3.5%) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at center, black, transparent 78%);
+}
+
+.landing-glow,
+.auth-glow {
+  background: radial-gradient(circle, rgb(3 200 114 / 15%), rgb(3 200 114 / 3%) 42%, transparent 70%);
+  filter: blur(30px);
+}
+
+.landing-reveal {
+  animation: landing-rise 850ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+  animation-delay: var(--landing-delay, 0ms);
+}
+
+.landing-delay-1 { --landing-delay: 80ms; }
+.landing-delay-2 { --landing-delay: 160ms; }
+.landing-delay-3 { --landing-delay: 250ms; }
+.landing-delay-4 { --landing-delay: 340ms; }
+.landing-delay-5 { --landing-delay: 430ms; }
+
+.landing-float {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+.landing-navy-stage,
+.auth-navy-stage {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 5%), transparent 42%),
+    radial-gradient(circle at 50% 74%, rgb(3 200 114 / 11%), transparent 47%),
+    rgb(17 17 17 / 78%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 7%),
+    0 38px 90px rgb(0 0 0 / 48%);
+}
+
+.landing-orbit {
+  border-color: rgb(255 255 255 / 8%);
+}
+
+.landing-orbit::after {
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 24px rgb(3 200 114 / 85%);
+  content: "";
+}
+
+.landing-orbit-outer {
+  animation: landing-orbit 24s linear infinite;
+}
+
+.landing-orbit-inner {
+  animation: landing-orbit 18s linear infinite reverse;
+}
+
+.landing-status-note {
+  animation: landing-status 5s ease-in-out infinite;
+}
+
+.landing-status-note:nth-of-type(even) {
+  animation-delay: -2.4s;
+}
+
+.landing-command-track {
+  animation: landing-marquee 34s linear infinite;
+  will-change: transform;
+}
+
+.landing-section {
+  scroll-margin-top: 4rem;
+}
+
+.landing-product-window {
+  box-shadow:
+    0 50px 120px rgb(0 0 0 / 55%),
+    0 0 0 1px rgb(255 255 255 / 2%);
+}
+
+.landing-feature-card,
+.landing-security-item {
+  transition:
+    transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 300ms ease,
+    background-color 300ms ease;
+}
+
+.landing-feature-card:hover,
+.landing-security-item:hover {
+  transform: translateY(-4px);
+  border-color: rgb(3 200 114 / 34%);
+  background-color: #151515;
+}
+
+.landing-final {
+  background:
+    radial-gradient(circle at 50% 115%, rgb(3 200 114 / 16%), transparent 44%),
+    var(--card);
+}
+
+.auth-page {
+  background:
+    radial-gradient(circle at 85% 20%, rgb(3 200 114 / 4%), transparent 25rem),
+    var(--background);
+}
+
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(0.8deg);
+  }
+}
+
+@keyframes landing-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes landing-status {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes landing-marquee {
+  to {
+    transform: translateX(calc(-50% - 0.375rem));
+  }
+}
+
+@supports (animation-timeline: view()) {
+  .landing-scroll-reveal {
+    animation: landing-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 7% cover 28%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .landing-reveal,
+  .landing-float,
+  .landing-orbit,
+  .landing-status-note,
+  .landing-command-track,
+  .landing-scroll-reveal,
+  .signal-pulse {
+    animation: none;
+  }
+
+  .navy-body,
+  .navy-eye,
+  .landing-feature-card,
+  .landing-security-item {
+    transition: none;
+  }
+}
