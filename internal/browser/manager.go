@@ -568,9 +568,6 @@ func (m *Manager) Screenshot(ctx context.Context, fullPage bool) ([]byte, string
 	}
 	op, cancel := m.operationContext(ctx, m.navigationTimeout)
 	defer cancel()
-	if err := m.ensureProtectedValuesNotVisibleLocked(op); err != nil {
-		return nil, "", err
-	}
 	var data []byte
 	var action chromedp.Action = chromedp.CaptureScreenshot(&data)
 	if fullPage {
