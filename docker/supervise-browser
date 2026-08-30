@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -u
+
+readonly cdp_version_url="http://127.0.0.1:9222/json/version"
+readonly cdp_pages_url="http://127.0.0.1:9222/json/list"
+
+while true; do
+  /opt/navego-browser/start-browser "$@" &
+  browser_pid=$!
+
+  (
+    sleep 5
+    while kill -0 "$browser_pid" 2>/dev/null; do
+      if curl -fsS --max-time 2 "$cdp_version_url" >/dev/null 2>&1 &&
+        ! curl -fsS --max-time 2 "$cdp_pages_url" 2>/dev/null | grep -q '"type":[[:space:]]*"page"'; then
+        /opt/navego-browser/start-browser "$@" --new-window chrome://newtab >/dev/null 2>&1 || true
+      fi
+      sleep 2
+    done
+  ) &
+  page_watchdog_pid=$!
+
+  wait "$browser_pid" || true
+  kill "$page_watchdog_pid" 2>/dev/null || true
+  wait "$page_watchdog_pid" 2>/dev/null || true
+  sleep 1
+done

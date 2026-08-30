@@ -1,5 +1,5 @@
 #!/bin/bash
 
-exec /opt/navego-browser/start-browser \
+exec /opt/navego-browser/supervise-browser \
   --enable-features=UseOzonePlatform \
   --ozone-platform=wayland

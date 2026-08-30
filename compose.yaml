@@ -1,39 +1,103 @@
 name: navego
 
 services:
-  navego-browser:
+  navego-browser-image:
+    profiles: [images]
     build:
       context: .
       dockerfile: docker/chromium/Dockerfile
     image: navego-browser:local
+    entrypoint: ["/bin/true"]
+    restart: "no"
+
+  navego-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: control
+    image: navego-control:local
+    command: ["serve", "--http=0.0.0.0:8090"]
     environment:
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      TZ: ${TZ:-America/Sao_Paulo}
-      CUSTOM_USER: ${CHROMIUM_USER:-abc}
-      PASSWORD: ${CHROMIUM_PASSWORD:-}
-      TITLE: Navego
-      RESTART_APP: "true"
-      # Page.captureScreenshot currently hangs with this image's Wayland
-      # compositor. X11 keeps CDP capture deterministic on local and servers.
-      PIXELFLUX_WAYLAND: ${PIXELFLUX_WAYLAND:-false}
-      CHROME_CLI: >-
-        --remote-debugging-port=9222
-        --remote-debugging-address=127.0.0.1
+      NAVEGO_DATA_DIR: /data
+      NAVEGO_AGENT_TOKEN: ${NAVEGO_AGENT_TOKEN:-local-agent-token-change-me}
+      NAVEGO_WORKER_API_KEY: ${NAVEGO_WORKER_API_KEY:-local-worker-token-change-me}
+      NAVEGO_VAULT_KEY: ${NAVEGO_VAULT_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      NAVEGO_PUBLIC_VIEWER_URL: ${NAVEGO_PUBLIC_VIEWER_URL:-http://127.0.0.1:8090}
+      NAVEGO_PUBLIC_DASHBOARD_ORIGINS: ${NAVEGO_PUBLIC_DASHBOARD_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - pocketbase-data:/data
+    networks:
+      - navego-runtime
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  navego-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: navego-web:local
+    environment:
+      NAVEGO_CONTROL_URL: http://navego-control:8090
+      NAVEGO_PUBLIC_MCP_URL: ${NAVEGO_PUBLIC_MCP_URL:-http://127.0.0.1:8090/mcp}
     ports:
       - "127.0.0.1:3000:3000"
-      - "127.0.0.1:3001:3001"
-    volumes:
-      - browser-data:/config
-    shm_size: "1gb"
+    depends_on:
+      - navego-control
+    networks:
+      - navego-runtime
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9222/json/version"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
+
+  navego-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: agent
+    image: navego-runtime:local
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      NAVEGO_CONTROL_URL: http://navego-control:8090
+      NAVEGO_AGENT_ID: ${NAVEGO_AGENT_ID:-primary}
+      NAVEGO_AGENT_TOKEN: ${NAVEGO_AGENT_TOKEN:-local-agent-token-change-me}
+      NAVEGO_WORKER_API_KEY: ${NAVEGO_WORKER_API_KEY:-local-worker-token-change-me}
+      NAVEGO_BROWSER_IMAGE: navego-browser:local
+      NAVEGO_WORKER_IMAGE: navego-runtime:local
+      NAVEGO_DOCKER_NETWORK: navego-runtime
+    depends_on:
+      - navego-control
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - navego-runtime
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
 
 volumes:
-  browser-data:
-    name: navego-browser-data
+  pocketbase-data:
+    name: navego-pocketbase-data
+
+networks:
+  navego-runtime:
+    name: navego-runtime

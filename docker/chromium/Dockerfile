@@ -7,11 +7,13 @@ USER root
 WORKDIR /opt/navego-browser
 
 COPY docker/start-browser ./start-browser
+COPY docker/supervise-browser ./supervise-browser
 COPY docker/autostart /defaults/autostart
 COPY docker/autostart-wayland /defaults/autostart_wayland
 COPY docker/install-autostart /custom-cont-init.d/50-navego-autostart
 RUN chmod 0755 \
     ./start-browser \
+    ./supervise-browser \
     /defaults/autostart \
     /defaults/autostart_wayland \
     /custom-cont-init.d/50-navego-autostart

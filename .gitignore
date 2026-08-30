@@ -4,3 +4,7 @@
 coverage.out
 /navego
 /secrets/
+/pb_data/
+/data/
+/navego-agent
+/navego-control

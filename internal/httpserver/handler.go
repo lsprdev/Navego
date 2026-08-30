@@ -93,6 +93,11 @@ func New(opts Options) http.Handler {
 	mux.Handle("POST /mcp", protectedMCP)
 	mux.Handle("DELETE /mcp", protectedMCP)
 	mux.HandleFunc("GET /healthz", healthHandler(opts.Browser))
+	var screenshotHandler http.Handler = http.HandlerFunc(internalScreenshotHandler(opts.Browser))
+	if opts.APIKey != "" {
+		screenshotHandler = bearerAuth(opts.APIKey, screenshotHandler)
+	}
+	mux.Handle("GET /internal/screenshot", screenshotHandler)
 	// Match only the exact root. A catch-all root would return app metadata for
 	// unknown OAuth discovery paths and make clients interpret it as malformed
 	// authorization metadata instead of an absent endpoint.
@@ -247,6 +252,23 @@ func healthHandler(controller browser.Controller) http.HandlerFunc {
 			"status":  "ok",
 			"browser": status,
 		})
+	}
+}
+
+func internalScreenshotHandler(controller browser.Controller) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		data, mimeType, err := controller.Screenshot(ctx, false)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "screenshot unavailable"})
+			return
+		}
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
 	}
 }
 

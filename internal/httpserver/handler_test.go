@@ -35,7 +35,7 @@ func (stubBrowser) Type(context.Context, string, string, bool) (browser.Snapshot
 	return browser.Snapshot{}, nil
 }
 func (stubBrowser) Screenshot(context.Context, bool) ([]byte, string, error) {
-	return nil, "image/png", nil
+	return []byte("png"), "image/png", nil
 }
 func (stubBrowser) PDF(context.Context) ([]byte, string, error) {
 	return nil, "application/pdf", nil
@@ -57,6 +57,25 @@ func TestHealthDoesNotRequireAuthentication(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("health status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+}
+
+func TestInternalScreenshotUsesWorkerBearerToken(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1"}, nil)
+	handler := New(Options{MCPServer: server, Browser: stubBrowser{}, APIKey: "secret"})
+
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/internal/screenshot", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token status = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/internal/screenshot", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "image/png" || recorder.Body.String() != "png" {
+		t.Fatalf("unexpected screenshot response: status=%d type=%q body=%q", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String())
 	}
 }
 
