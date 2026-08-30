@@ -11,6 +11,8 @@ const (
 	CredentialsCollection  = "saved_credentials"
 	OAuthGrantsCollection  = "oauth_grants"
 	OAuthRefreshCollection = "oauth_refresh_tokens"
+	OAuthClientsCollection = "oauth_clients"
+	OAuthAccessCollection  = "oauth_access_tokens"
 	AuditEventsCollection  = "audit_events"
 )
 

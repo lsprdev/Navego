@@ -264,12 +264,20 @@ func validatedViewerEndpoint(raw string) (string, error) {
 }
 
 func validatedPublicViewerURL(raw string) (string, error) {
+	return validatedPublicBaseURL(raw, "viewer")
+}
+
+func validatedPublicDashboardURL(raw string) (string, error) {
+	return validatedPublicBaseURL(raw, "dashboard")
+}
+
+func validatedPublicBaseURL(raw, label string) (string, error) {
 	parsed, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("malformed public viewer URL")
+		return "", fmt.Errorf("malformed public %s URL", label)
 	}
 	if parsed.Path != "" {
-		return "", fmt.Errorf("public viewer URL must not contain a path")
+		return "", fmt.Errorf("public %s URL must not contain a path", label)
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
 }

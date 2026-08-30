@@ -98,6 +98,16 @@ func New(opts Options) http.Handler {
 		screenshotHandler = bearerAuth(opts.APIKey, screenshotHandler)
 	}
 	mux.Handle("GET /internal/screenshot", screenshotHandler)
+	if strings.TrimSpace(opts.APIKey) == "" {
+		unavailable := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "internal saved-login broker is not configured"})
+		})
+		mux.Handle("POST /internal/saved-login/describe", unavailable)
+		mux.Handle("POST /internal/saved-login/commit", unavailable)
+	} else {
+		mux.Handle("POST /internal/saved-login/describe", bearerAuth(opts.APIKey, internalSavedLoginDescribeHandler(opts.Browser)))
+		mux.Handle("POST /internal/saved-login/commit", bearerAuth(opts.APIKey, internalSavedLoginCommitHandler(opts.Browser)))
+	}
 	// Match only the exact root. A catch-all root would return app metadata for
 	// unknown OAuth discovery paths and make clients interpret it as malformed
 	// authorization metadata instead of an absent endpoint.
@@ -152,6 +162,12 @@ func advertiseToolSecuritySchemes(next http.Handler, logger *slog.Logger) http.H
 		w.WriteHeader(buffered.status)
 		_, _ = w.Write(responseBody)
 	})
+}
+
+// AdvertiseToolSecuritySchemes exposes the ChatGPT compatibility layer to the
+// multi-browser control-plane MCP handler.
+func AdvertiseToolSecuritySchemes(next http.Handler, logger *slog.Logger) http.Handler {
+	return advertiseToolSecuritySchemes(next, logger)
 }
 
 func isToolsListRequest(body []byte) bool {

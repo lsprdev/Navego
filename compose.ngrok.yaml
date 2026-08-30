@@ -1,11 +1,17 @@
 services:
+  navego-control:
+    environment:
+      NAVEGO_PUBLIC_MCP_URL: ${NGROK_URL:?Set NGROK_URL to your assigned HTTPS ngrok domain}/mcp
+
+  navego-web:
+    environment:
+      NAVEGO_PUBLIC_MCP_URL: ${NGROK_URL:?Set NGROK_URL to your assigned HTTPS ngrok domain}/mcp
+
   ngrok:
     image: ngrok/ngrok:3-alpine
-    command: ["http", "navego-control:8090", "--log", "stdout"]
+    command: ["http", "navego-control:8090", "--inspect=false", "--log", "stdout"]
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?Set NGROK_AUTHTOKEN in .env}
-    ports:
-      - "127.0.0.1:4040:4040"
     depends_on:
       - navego-control
     networks:

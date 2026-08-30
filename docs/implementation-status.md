@@ -1,6 +1,6 @@
 # Status da implementação do Navego
 
-Data da validação: 29 de agosto de 2026.
+Data da validação: 30 de agosto de 2026.
 
 ## Estado atual
 
@@ -26,12 +26,12 @@ Componentes ativos:
 - `docker/chromium/`: imagem do Chromium com Selkies e CDP restrito;
 - `compose.yaml`: ambiente local consolidado;
 - `compose.dokploy.yaml`: base do deploy com Traefik;
-- `compose.ngrok.yaml`: overlay temporário para futuros testes do MCP.
+- `compose.ngrok.yaml`: overlay com domínio HTTPS estável para MCP/OAuth.
 
 ## Entregue neste milestone
 
 - PocketBase 0.40.1 embutido no processo Go e migrations versionadas;
-- collections de browsers, credenciais cifradas, OAuth futuro e auditoria;
+- collections de browsers, credenciais cifradas, OAuth e auditoria;
 - isolamento de registros por usuário e limite inicial de cinco browsers;
 - criar, renomear, ligar, desligar e excluir pelo dashboard;
 - menu de conta com edição de nome e troca de senha que encerra a sessão atual;
@@ -51,8 +51,22 @@ Componentes ativos:
 - cards com preview estático sob demanda, evitando várias sessões Selkies;
 - viewer em diálogo de 90%, com ticket aleatório de uso único, cookie HttpOnly e
   proxy HTTP/WebSocket;
+- handoff de autenticação do ChatGPT separado do ticket do iframe: o link de
+  takeover dura 15 minutos, tolera prefetch/reload, exige sessão no dashboard,
+  confere o mesmo owner do OAuth e abre o Chromium correto no diálogo existente;
+- handoff humano cooperativo: a próxima chamada MCP retoma automaticamente a
+  automação, inclusive para snapshots e screenshots, e `resume` é idempotente;
+- autorização no pedido atual para posts, mensagens e formulários exatos:
+  `prepare -> commit` continua vinculando página/campos e bloqueando replay, mas
+  ocorre no mesmo turno quando conteúdo e destino já foram explicitamente
+  ordenados; efeitos de alto impacto ainda pedem confirmação final;
 - Dockerfiles separados para control, agent/worker e frontend standalone;
-- rotas Traefik separadas para dashboard/viewer e MCP futuro.
+- rotas Traefik separadas para dashboard/viewer e MCP/OAuth;
+- endpoint MCP público único, autenticado por OAuth 2.1 com PKCE S256, registro
+  dinâmico de cliente, tokens opacos, refresh com rotação e revogação;
+- ferramentas MCP para listar os Chromiums da conta e definir o padrão;
+- seletor opcional `browser` por nome exato ou ID em todas as ferramentas do
+  worker, com prioridade sobre o padrão configurado no dashboard.
 
 ## Validação executada
 
@@ -88,12 +102,16 @@ O cofre passou por um smoke isolado com conta descartável: criação, listagem 
 senha, atualização preservando a senha, exclusão da credencial e remoção da
 conta de teste com HTTP 204.
 
+O fluxo MCP/OAuth passou por E2E automatizado cobrindo registro dinâmico,
+consentimento com login PocketBase, authorization code com PKCE, emissão e
+rotação de tokens, listagem de dois Chromiums, troca do padrão, isolamento de um
+terceiro Chromium pertencente a outra conta e rejeição após revogação do token.
+
 ## Pendências intencionais
 
-1. Implementar authorization server OAuth e proxy MCP multiusuário no control
-   plane. O worker MCP já existe, mas o novo endpoint público ainda não roteia
-   grants por usuário/browser.
-2. Ligar o cofre ao broker de login do worker através do futuro proxy MCP. Até
+1. Validar o endpoint MCP/OAuth no ChatGPT Developer mode usando ngrok ou o
+   domínio de produção.
+2. Ligar o cofre ao broker de login do worker através do proxy MCP. Até
    lá, os segredos podem ser gerenciados no dashboard, mas não são injetados no
    Chromium.
 3. Adicionar convites, quotas configuráveis, recuperação de senha e hardening de
@@ -108,6 +126,8 @@ conta de teste com HTTP 204.
   precisa ser tratado como componente privilegiado;
 - containers são isolamento operacional, não uma fronteira equivalente a VM;
 - tickets do viewer ficam em memória e são perdidos ao reiniciar o control;
+- links de takeover também ficam em memória e são perdidos ao reiniciar o
+  control; eles não concedem acesso sem uma sessão do mesmo usuário;
 - o token agent e a chave worker são globais no host neste estágio;
 - perder `NAVEGO_VAULT_KEY` torna os payloads cifrados irrecuperáveis; rotação de
   chave ainda será implementada antes de produção.

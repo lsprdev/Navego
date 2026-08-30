@@ -146,7 +146,7 @@ Responsabilidades:
 - estado desejado das instâncias no PocketBase;
 - autorização OAuth do ChatGPT;
 - resource server e endpoint MCP público;
-- associação `usuário -> grant OAuth -> browser selecionado`;
+- associação `usuário -> grant OAuth`, com browser selecionado por chamada;
 - proxy das chamadas MCP para o worker correto;
 - geração de previews e tickets de viewer;
 - cifrar e decifrar credenciais somente em memória;
@@ -441,20 +441,40 @@ O endpoint continuará público em:
 https://mcp.browser.lspr.dev/mcp
 ```
 
-O control plane será OAuth resource server e authorization server. O login do
-OAuth reutilizará o usuário do PocketBase; o access token terá `sub` igual ao id
-do usuário e audience igual ao endpoint MCP.
+O control plane é OAuth resource server e authorization server. O login OAuth
+reutiliza o usuário do PocketBase. Access e refresh tokens são opacos, ficam
+armazenados somente como hash e carregam no registro interno usuário, resource,
+cliente, scopes e expiração.
 
 Fluxo inicial:
 
-1. usuário escolhe um browser padrão no dashboard;
+1. o usuário pode escolher um browser padrão no dashboard;
 2. conecta o Navego no ChatGPT usando o endpoint acima;
-3. OAuth identifica o usuário e concede os scopes;
-4. o grant OAuth da conexão é vinculado ao browser padrão e os access tokens
-   carregam uma referência verificável a esse vínculo;
-5. mudar o padrão afeta somente novas conexões ou uma reautorização; um grant já
-   emitido permanece vinculado para não trocar de navegador no meio da tarefa;
-6. futuramente uma tool explícita poderá listar e selecionar browsers.
+3. OAuth identifica o usuário e concede os scopes para os browsers da conta;
+4. `browser_list_instances` lista nomes, IDs, estados e o padrão;
+5. toda tool do worker aceita `browser` com nome exato ou ID;
+6. sem `browser`, o control usa o padrão ou o único browser criado;
+7. a seleção é por chamada, sem estado global compartilhado entre conversas;
+8. prepare/commit, takeover e login salvo devem repetir o mesmo browser.
+
+No takeover humano, a tool retorna imediatamente um link do dashboard, e não o
+ticket descartável do iframe. O fluxo é:
+
+1. o ChatGPT reconhece autenticação/MFA/passkey/OTP/CAPTCHA e chama
+   `browser_request_human_login` no mesmo turno;
+2. o control cria um handoff opaco ligado a `owner + browser`, válido por 15
+   minutos e não consumido por prefetch;
+3. o link abre `/takeover/<ticket>` no dashboard;
+4. sem sessão, o usuário entra e retorna ao mesmo link;
+5. o control compara a conta do dashboard com o owner do token OAuth usado pelo
+   ChatGPT;
+6. a conta correta é redirecionada ao dashboard com o diálogo de 90% aberto no
+   Chromium exato; outra conta recebe um erro e a opção de trocar de conta;
+7. somente então o diálogo emite seu ticket curto e de uso único para o iframe.
+8. a próxima chamada MCP transfere o controle de volta ao agente
+   automaticamente; `pronto` é uma conveniência, não uma trava obrigatória;
+9. leituras e capturas solicitadas depois do handoff não ficam presas em estado
+   manual antigo.
 
 A página “Conectar ao ChatGPT” mostrará:
 
@@ -462,7 +482,7 @@ A página “Conectar ao ChatGPT” mostrará:
 - botão para abrir a área de Plugins do ChatGPT;
 - instruções para ativar Developer mode quando necessário;
 - estado da autorização e opção de revogar;
-- browser que será associado a novas autorizações;
+- browser padrão usado quando não houver seleção explícita;
 - teste simples: abrir `example.com` e capturar screenshot.
 
 Não há fluxo oficial documentado que permita ao Navego cadastrar sozinho um
@@ -745,14 +765,16 @@ Saída: primeiro clique mostra preview; segundo abre o navegador interativo.
 Saída: usuário cadastra uma conta pelo dashboard e o worker faz um login de
 teste sem senha no banco em texto puro ou no ChatGPT.
 
-### M6 — MCP multiusuário e ChatGPT — pendente
+### M6 — MCP multiusuário e ChatGPT — implementado; aceite externo pendente
 
 - OAuth integrado ao usuário PocketBase;
-- endpoint público único e routing pelo grant OAuth;
-- browser padrão e vínculo estável do grant;
+- endpoint público único e routing pelo usuário OAuth;
+- listagem e seleção de browser por nome/ID em cada chamada;
+- browser padrão como fallback configurável;
 - página “Conectar ao ChatGPT”;
-- testes no MCP Inspector e no ChatGPT Developer mode;
-- refresh, revogação e auditoria.
+- PKCE S256, DCR, refresh com rotação, revogação e auditoria;
+- smoke local automatizado;
+- aceite no ChatGPT Developer mode após configurar um domínio HTTPS.
 
 Saída: dois usuários não conseguem enxergar nem controlar browsers um do outro.
 

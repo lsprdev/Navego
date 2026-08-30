@@ -25,6 +25,8 @@ type Config struct {
 	AgentToken             string
 	WorkerAPIKey           string
 	PublicViewerURL        string
+	PublicDashboardURL     string
+	PublicMCPURL           string
 	PublicDashboardOrigins string
 	VaultKey               string
 	InternalHTTP           *http.Client
@@ -47,26 +49,30 @@ func New(cfg Config) *pocketbase.PocketBase {
 		cfg.InternalHTTP = &http.Client{Timeout: 20 * time.Second}
 	}
 	viewerAccess := newViewerStore()
+	humanAccess := newHumanAccessStore()
 	app.OnServe().BindFunc(func(event *core.ServeEvent) error {
 		// Navego never exposes PocketBase's browser installer. Administrators are
 		// created explicitly with the CLI, which avoids logging a short-lived
 		// superuser URL in container logs.
 		event.InstallerFunc = nil
-		registerRoutes(event, cfg, viewerAccess)
+		registerRoutes(event, cfg, viewerAccess, humanAccess)
 		return event.Next()
 	})
 
 	return app
 }
 
-func registerRoutes(event *core.ServeEvent, cfg Config, viewerAccess *viewerStore) {
+func registerRoutes(event *core.ServeEvent, cfg Config, viewerAccess *viewerStore, humanAccess *humanAccessStore) {
 	vault, vaultErr := newCredentialVault(cfg.VaultKey)
+	oauthService, oauthErr := newOAuthService(event.App, cfg.PublicMCPURL)
 	event.Router.GET("/api/navego/healthz", func(request *core.RequestEvent) error {
 		return request.JSON(http.StatusOK, map[string]any{
 			"status":  "ok",
 			"service": "navego-control",
 		})
 	})
+	registerOAuthRoutes(event, oauthService, oauthErr)
+	registerPublicMCP(event, oauthService, oauthErr, cfg, humanAccess)
 
 	protected := event.Router.Group("/api/navego").Bind(apis.RequireAuth("users"))
 	protected.GET("/browsers", listBrowsers)
@@ -77,9 +83,11 @@ func registerRoutes(event *core.ServeEvent, cfg Config, viewerAccess *viewerStor
 	protected.DELETE("/credentials/{id}", deleteCredential(vault, vaultErr))
 	protected.POST("/browsers", createBrowser)
 	protected.PATCH("/browsers/{id}", renameBrowser)
+	protected.POST("/browsers/{id}/default", setDefaultBrowser)
 	protected.POST("/browsers/{id}/power", powerBrowser)
 	protected.GET("/browsers/{id}/preview", previewBrowser(cfg.WorkerAPIKey, cfg.InternalHTTP))
 	protected.POST("/browsers/{id}/viewer-ticket", mintViewerTicket(viewerAccess, cfg.PublicViewerURL))
+	protected.GET("/takeovers/{ticket}", resolveHumanAccess(humanAccess))
 	protected.DELETE("/browsers/{id}", deleteBrowser)
 
 	publicViewer, _ := validatedPublicViewerURL(cfg.PublicViewerURL)
@@ -157,6 +165,7 @@ type browserResponse struct {
 	Title     string `json:"title"`
 	URL       string `json:"url"`
 	UpdatedAt string `json:"updated_at"`
+	IsDefault bool   `json:"is_default"`
 }
 
 type agentBrowser struct {
@@ -229,7 +238,7 @@ func listBrowsers(event *core.RequestEvent) error {
 
 	result := make([]browserResponse, 0, len(records))
 	for _, record := range records {
-		result = append(result, mapBrowser(record))
+		result = append(result, mapBrowser(record, record.Id == event.Auth.GetString("default_browser")))
 	}
 	return event.JSON(http.StatusOK, result)
 }
@@ -273,8 +282,16 @@ func createBrowser(event *core.RequestEvent) error {
 	if err := event.App.Save(record); err != nil {
 		return event.BadRequestError("Não foi possível criar o navegador.", err)
 	}
+	isDefault := event.Auth.GetString("default_browser") == ""
+	if isDefault {
+		event.Auth.Set("default_browser", record.Id)
+		if err := event.App.Save(event.Auth); err != nil {
+			_ = event.App.Delete(record)
+			return event.InternalServerError("Não foi possível definir o primeiro navegador como padrão.", err)
+		}
+	}
 	writeAudit(event.App, event.Auth.Id, record.Id, "browser.create", "success", map[string]any{"name": name})
-	return event.JSON(http.StatusAccepted, mapBrowser(record))
+	return event.JSON(http.StatusAccepted, mapBrowser(record, isDefault))
 }
 
 func renameBrowser(event *core.RequestEvent) error {
@@ -297,7 +314,20 @@ func renameBrowser(event *core.RequestEvent) error {
 		return event.BadRequestError("Não foi possível renomear o navegador.", err)
 	}
 	writeAudit(event.App, event.Auth.Id, record.Id, "browser.rename", "success", map[string]any{"name": name})
-	return event.JSON(http.StatusOK, mapBrowser(record))
+	return event.JSON(http.StatusOK, mapBrowser(record, record.Id == event.Auth.GetString("default_browser")))
+}
+
+func setDefaultBrowser(event *core.RequestEvent) error {
+	record, apiErr := ownedBrowser(event)
+	if apiErr != nil {
+		return apiErr
+	}
+	event.Auth.Set("default_browser", record.Id)
+	if err := event.App.Save(event.Auth); err != nil {
+		return event.InternalServerError("Não foi possível definir o navegador padrão.", err)
+	}
+	writeAudit(event.App, event.Auth.Id, record.Id, "browser.default", "success", nil)
+	return event.JSON(http.StatusOK, mapBrowser(record, true))
 }
 
 func powerBrowser(event *core.RequestEvent) error {
@@ -322,7 +352,7 @@ func powerBrowser(event *core.RequestEvent) error {
 		return event.BadRequestError("Não foi possível alterar o navegador.", err)
 	}
 	writeAudit(event.App, event.Auth.Id, record.Id, operation, "success", nil)
-	return event.JSON(http.StatusAccepted, mapBrowser(record))
+	return event.JSON(http.StatusAccepted, mapBrowser(record, record.Id == event.Auth.GetString("default_browser")))
 }
 
 func deleteBrowser(event *core.RequestEvent) error {
@@ -333,6 +363,12 @@ func deleteBrowser(event *core.RequestEvent) error {
 	record.Set("state", "deleting")
 	if err := event.App.Save(record); err != nil {
 		return event.BadRequestError("Não foi possível agendar a exclusão do navegador.", err)
+	}
+	if event.Auth.GetString("default_browser") == record.Id {
+		event.Auth.Set("default_browser", "")
+		if err := event.App.Save(event.Auth); err != nil {
+			return event.InternalServerError("O navegador foi agendado para exclusão, mas o padrão não pôde ser limpo.", err)
+		}
 	}
 	writeAudit(event.App, event.Auth.Id, record.Id, "browser.delete", "success", nil)
 	return event.JSON(http.StatusAccepted, map[string]string{"status": "deleting"})
@@ -357,7 +393,7 @@ func listAgentCommands(event *core.RequestEvent) error {
 
 	records, err := event.App.FindRecordsByFilter(
 		pb_migrations.BrowsersCollection,
-		"(state = 'queued' || state = 'starting' || state = 'running' || state = 'stopping' || state = 'deleting') && (agent_id = '' || agent_id = {:agent})",
+		"(state = 'queued' || state = 'starting' || state = 'running' || state = 'error' || state = 'stopping' || state = 'deleting') && (agent_id = '' || agent_id = {:agent})",
 		"created",
 		100,
 		0,
@@ -438,7 +474,7 @@ func reportBrowserState(event *core.RequestEvent) error {
 	if err := event.App.Save(record); err != nil {
 		return event.BadRequestError("Não foi possível atualizar o navegador.", err)
 	}
-	return event.JSON(http.StatusOK, mapBrowser(record))
+	return event.JSON(http.StatusOK, mapBrowser(record, false))
 }
 
 func confirmBrowserDeletion(event *core.RequestEvent) error {
@@ -463,7 +499,7 @@ func validAgentTransition(current, next string) bool {
 	case "starting":
 		return current == "queued" || current == "starting"
 	case "running":
-		return current == "queued" || current == "starting" || current == "running"
+		return current == "queued" || current == "starting" || current == "running" || current == "error"
 	case "stopped":
 		return current == "stopping" || current == "stopped"
 	default:
@@ -496,7 +532,7 @@ func normalizeBrowserName(name string) (string, error) {
 	return name, nil
 }
 
-func mapBrowser(record *core.Record) browserResponse {
+func mapBrowser(record *core.Record, isDefault bool) browserResponse {
 	return browserResponse{
 		ID:        record.Id,
 		Name:      record.GetString("name"),
@@ -504,6 +540,7 @@ func mapBrowser(record *core.Record) browserResponse {
 		Title:     record.GetString("last_title"),
 		URL:       record.GetString("last_url"),
 		UpdatedAt: record.GetDateTime("updated").String(),
+		IsDefault: isDefault,
 	}
 }
 

@@ -7,6 +7,7 @@ export type BrowserInstance = {
   title: string;
   url: string;
   updatedAt: string;
+  isDefault: boolean;
 };
 
 export type ControlBrowser = {
@@ -16,6 +17,7 @@ export type ControlBrowser = {
   title: string;
   url: string;
   updated_at: string;
+  is_default: boolean;
 };
 
 export type SessionUser = {

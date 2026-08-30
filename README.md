@@ -1,7 +1,7 @@
 # Navego
 
-Plataforma em Go para criar e controlar Chromiums persistentes pelo dashboard e,
-na próxima etapa, pelo ChatGPT via MCP.
+Plataforma em Go para criar e controlar Chromiums persistentes pelo dashboard e
+pelo ChatGPT via MCP.
 
 ## Arquitetura atual
 
@@ -61,20 +61,60 @@ Já implementado:
 - reconciliação idempotente pelo agent, volumes, labels e limites de recursos;
 - previews PNG autenticados;
 - viewer reverso com ticket curto, cookie HttpOnly e suporte a WebSocket;
+- takeover do ChatGPT com link autenticado para o dashboard, validação da mesma
+  conta Navego e abertura automática do Chromium correto no diálogo de 90%;
 - heartbeat com título e URL atuais dos Chromiums;
 - CRUD de acessos cifrados com AES-256-GCM, sem leitura da senha pela API;
-- worker MCP com navegação, takeover humano, screenshots e confirmação de ações.
+- worker MCP com navegação, handoff humano cooperativo, screenshots e ações
+  externas vinculadas por approval de uso único;
+- endpoint MCP público multiusuário, OAuth 2.1 com PKCE e tokens opacos;
+- seleção explícita de Chromium por nome/ID e fallback configurável no dashboard.
 
 Ainda em desenvolvimento:
 
-- proxy MCP multiusuário no control plane e OAuth próprio para o ChatGPT;
 - entrega just-in-time do vault ao worker com approval de uso único;
 - convite/limites configuráveis e hardening final do Dokploy.
 
-Portanto, o atalho “Conectar ao ChatGPT” já mostra a experiência planejada, mas
-o endpoint multiusuário `/mcp` do novo control plane só ficará operacional no
-milestone de OAuth. O overlay [`compose.ngrok.yaml`](compose.ngrok.yaml) está
-preservado para esse teste futuro.
+O atalho “Conectar ao ChatGPT” mostra a URL do endpoint `/mcp`. A conexão OAuth
+dá acesso apenas aos navegadores do usuário autenticado. O ChatGPT pode chamar
+`browser_list_instances`, informar `browser: "Nome"` em cada operação ou omitir
+o seletor para usar o Chromium marcado como padrão.
+
+### Testar com ngrok
+
+Use o domínio HTTPS de desenvolvimento atribuído à sua conta ngrok:
+
+```sh
+# em .env
+NGROK_AUTHTOKEN=...
+NGROK_URL=https://seu-dominio-atribuido.ngrok-free.app
+
+docker compose -f compose.yaml -f compose.ngrok.yaml up -d --build
+```
+
+Depois, adicione `https://seu-dominio-atribuido.ngrok-free.app/mcp` no modo de
+desenvolvedor do ChatGPT. O cliente fará o registro dinâmico e abrirá o login do
+Navego.
+
+O túnel acima expõe somente o control plane/MCP. Em desenvolvimento,
+`NAVEGO_PUBLIC_DASHBOARD_URL=http://127.0.0.1:3000` faz o ChatGPT devolver um
+link que abre o dashboard na máquina do usuário. Ao encontrar login, MFA,
+passkey, OTP ou CAPTCHA, o ChatGPT deve chamar o takeover no mesmo turno e já
+mostrar esse link. Se a sessão do dashboard estiver ausente, o Navego preserva o
+destino durante o login; uma conta diferente da vinculada no OAuth recebe uma
+mensagem de acesso incompatível.
+
+O controle humano não é uma trava permanente: a próxima ferramenta de navegador
+retoma a automação automaticamente. Para posts, mensagens e formulários, um
+pedido imperativo que já informe conteúdo e destino vale como autorização da
+ação exata; o worker ainda executa `prepare -> commit` no mesmo turno para
+validar página, campos e impedir replay. Compras, pagamentos, exclusões e logout
+continuam exigindo confirmação final separada.
+
+O domínio precisa ser exatamente o domínio de desenvolvimento exibido no painel
+da mesma conta do `NGROK_AUTHTOKEN`; não escolha ou reutilize um subdomínio
+aleatório. A inspeção HTTP local do ngrok fica desativada neste overlay para que
+corpos de formulários de autenticação não sejam armazenados.
 
 O cofre local usa `NAVEGO_VAULT_KEY`. A chave de desenvolvimento do exemplo é
 intencionalmente pública; gere uma chave exclusiva com `openssl rand -base64 32`
@@ -99,7 +139,7 @@ O plano e as decisões de arquitetura estão em
 [`compose.dokploy.yaml`](compose.dokploy.yaml) prepara:
 
 - `https://browser.lspr.dev` para dashboard e viewer;
-- `https://mcp.browser.lspr.dev/mcp` para o MCP futuro;
+- `https://mcp.browser.lspr.dev/mcp` para MCP e OAuth;
 - Traefik somente na frente das rotas públicas necessárias;
 - control, agent, Docker socket e rede dos Chromiums fora da exposição direta.
 

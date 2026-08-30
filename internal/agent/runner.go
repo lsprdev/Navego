@@ -98,7 +98,7 @@ func (r *Runner) reconcileBrowser(ctx context.Context, browser Browser) error {
 			return fmt.Errorf("report running state: %w", err)
 		}
 		r.rememberTelemetry(browser.ID, runtime)
-	case "running":
+	case "running", "error":
 		runtime, err := r.engine.EnsureRunning(ctx, browser)
 		if err != nil {
 			r.reportError(ctx, browser, err)

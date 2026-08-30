@@ -22,6 +22,8 @@ services:
       NAVEGO_WORKER_API_KEY: ${NAVEGO_WORKER_API_KEY:?Set NAVEGO_WORKER_API_KEY}
       NAVEGO_VAULT_KEY: ${NAVEGO_VAULT_KEY:?Set NAVEGO_VAULT_KEY}
       NAVEGO_PUBLIC_VIEWER_URL: https://browser.lspr.dev
+      NAVEGO_PUBLIC_DASHBOARD_URL: https://browser.lspr.dev
+      NAVEGO_PUBLIC_MCP_URL: https://mcp.browser.lspr.dev/mcp
       NAVEGO_PUBLIC_DASHBOARD_ORIGINS: https://browser.lspr.dev
     volumes:
       - pocketbase-data:/data
@@ -45,7 +47,7 @@ services:
       - "traefik.http.routers.navego-viewer.tls.certresolver=letsencrypt"
       - "traefik.http.routers.navego-viewer.service=navego-viewer"
       - "traefik.http.services.navego-viewer.loadbalancer.server.port=8090"
-      - "traefik.http.routers.navego-mcp.rule=Host(`mcp.browser.lspr.dev`) && (Path(`/mcp`) || PathPrefix(`/.well-known/`))"
+      - "traefik.http.routers.navego-mcp.rule=Host(`mcp.browser.lspr.dev`) && (Path(`/mcp`) || PathPrefix(`/.well-known/`) || PathPrefix(`/oauth/`))"
       - "traefik.http.routers.navego-mcp.entrypoints=websecure"
       - "traefik.http.routers.navego-mcp.tls.certresolver=letsencrypt"
       - "traefik.http.routers.navego-mcp.service=navego-mcp"

@@ -102,3 +102,14 @@ func TestPublicDashboardOriginRejectsPathsAndCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicDashboardURLRejectsPathsAndCredentials(t *testing.T) {
+	if value, err := validatedPublicDashboardURL("https://browser.lspr.dev/"); err != nil || value != "https://browser.lspr.dev" {
+		t.Fatalf("expected dashboard URL to be normalized: %q %v", value, err)
+	}
+	for _, value := range []string{"https://browser.lspr.dev/takeover", "https://user@browser.lspr.dev", "javascript:alert(1)"} {
+		if _, err := validatedPublicDashboardURL(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}

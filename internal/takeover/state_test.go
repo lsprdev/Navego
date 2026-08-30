@@ -2,25 +2,32 @@ package takeover
 
 import "testing"
 
-func TestTakeoverBlocksAutomationUntilResume(t *testing.T) {
+func TestNextAutomationCallClaimsControl(t *testing.T) {
 	state := New()
 	if err := state.RequireAutomation(); err != nil {
 		t.Fatal(err)
 	}
 	state.Request("login")
-	if err := state.RequireAutomation(); err != ErrHumanControlActive {
-		t.Fatalf("got %v, want %v", err, ErrHumanControlActive)
-	}
-	if _, err := state.Resume(); err != nil {
-		t.Fatal(err)
+	if state.Status().Phase != HumanActive {
+		t.Fatalf("got %s, want %s", state.Status().Phase, HumanActive)
 	}
 	if err := state.RequireAutomation(); err != nil {
 		t.Fatal(err)
 	}
+	if state.Status().Phase != AutomationActive {
+		t.Fatalf("got %s, want %s", state.Status().Phase, AutomationActive)
+	}
 }
 
-func TestResumeWithoutTakeoverFails(t *testing.T) {
-	if _, err := New().Resume(); err == nil {
-		t.Fatal("expected resume to fail")
+func TestResumeIsIdempotent(t *testing.T) {
+	state := New()
+	status, err := state.Resume()
+	if err != nil || status.Phase != AutomationActive {
+		t.Fatalf("status=%+v err=%v", status, err)
+	}
+	state.Request("login")
+	status, err = state.Resume()
+	if err != nil || status.Phase != AutomationActive {
+		t.Fatalf("status=%+v err=%v", status, err)
 	}
 }

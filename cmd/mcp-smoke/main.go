@@ -46,12 +46,8 @@ func main() {
 	call(ctx, session, "browser_press_key", map[string]any{"key": "HOME"})
 
 	call(ctx, session, "browser_request_human_login", map[string]any{"reason": "smoke test of the takeover boundary"})
-	blocked, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "browser_snapshot", Arguments: map[string]any{}})
-	must("call blocked snapshot", err)
-	if !blocked.IsError {
-		panic("browser_snapshot was not blocked while human control was active")
-	}
-	fmt.Println("Human takeover boundary: blocked automation as expected")
+	call(ctx, session, "browser_snapshot", map[string]any{})
+	fmt.Println("Human handoff: the next browser call reclaimed automation")
 	call(ctx, session, "browser_resume_after_human", map[string]any{})
 	call(ctx, session, "browser_list_tabs", map[string]any{})
 	call(ctx, session, "browser_take_screenshot", map[string]any{"full_page": false})

@@ -20,6 +20,8 @@ func main() {
 		WorkerAPIKey:           os.Getenv("NAVEGO_WORKER_API_KEY"),
 		VaultKey:               os.Getenv("NAVEGO_VAULT_KEY"),
 		PublicViewerURL:        envOrDefault("NAVEGO_PUBLIC_VIEWER_URL", "http://127.0.0.1:8090"),
+		PublicDashboardURL:     envOrDefault("NAVEGO_PUBLIC_DASHBOARD_URL", "http://127.0.0.1:3000"),
+		PublicMCPURL:           envOrDefault("NAVEGO_PUBLIC_MCP_URL", "http://127.0.0.1:8090/mcp"),
 		PublicDashboardOrigins: envOrDefault("NAVEGO_PUBLIC_DASHBOARD_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000"),
 	})
 	if err := app.Start(); err != nil {

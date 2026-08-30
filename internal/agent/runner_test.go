@@ -105,6 +105,29 @@ func TestRunnerRepairsRunningBrowserWithoutRewritingItsState(t *testing.T) {
 	}
 }
 
+func TestRunnerRecoversBrowserFromTransientError(t *testing.T) {
+	control := &fakeControl{commands: []Browser{{ID: "browser1", State: "error"}}}
+	engine := &fakeEngine{runtime: Runtime{
+		BrowserContainer: "browser-container",
+		WorkerContainer:  "replacement-worker",
+		WorkerEndpoint:   "http://browser:8001",
+		ViewerEndpoint:   "http://browser:3000",
+	}}
+	runner, err := NewRunner(control, engine, "agent-1", time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(engine.started) != 1 || engine.started[0] != "browser1" {
+		t.Fatalf("errored browser was not reconciled: %#v", engine.started)
+	}
+	if len(control.reports) != 1 || control.reports[0].State != "running" || control.reports[0].WorkerContainer != "replacement-worker" {
+		t.Fatalf("browser recovery was not reported: %#v", control.reports)
+	}
+}
+
 func TestRunnerStopsAndDeletesBrowsers(t *testing.T) {
 	control := &fakeControl{commands: []Browser{
 		{ID: "stop-me", State: "stopping"},

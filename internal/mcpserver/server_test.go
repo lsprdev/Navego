@@ -134,7 +134,7 @@ func connectTestClient(t *testing.T, server *mcp.Server) *mcp.ClientSession {
 	return session
 }
 
-func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
+func TestAdvertisesMinimalToolsAndAutomaticHumanHandoff(t *testing.T) {
 	fake := &fakeBrowser{snapshot: browser.Snapshot{URL: "https://x.com", Title: "X", Generation: 1}}
 	state := takeover.New()
 	server := New(fake, state, approval.NewStore(time.Minute), "https://127.0.0.1:3001", nil)
@@ -168,16 +168,19 @@ func TestAdvertisesMinimalToolsAndTakeoverBoundary(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("request takeover: result=%+v err=%v", result, err)
 	}
-	blocked, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_snapshot", Arguments: map[string]any{}})
+	continued, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_snapshot", Arguments: map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !blocked.IsError {
-		t.Fatal("snapshot should be blocked during human control")
+	if continued.IsError {
+		t.Fatalf("the next browser call should reclaim automation: %+v", continued.Content)
+	}
+	if state.Status().Phase != takeover.AutomationActive {
+		t.Fatalf("takeover phase = %s, want %s", state.Status().Phase, takeover.AutomationActive)
 	}
 	resumed, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_resume_after_human", Arguments: map[string]any{}})
 	if err != nil || resumed.IsError {
-		t.Fatalf("resume: result=%+v err=%v", resumed, err)
+		t.Fatalf("idempotent resume: result=%+v err=%v", resumed, err)
 	}
 }
 
@@ -354,6 +357,10 @@ func TestScreenshotToolProvidesInlineUI(t *testing.T) {
 	}
 	if html := resource.Contents[0].Text; !strings.Contains(html, "toolResponseMetadata") || !strings.Contains(html, "ui/notifications/tool-result") {
 		t.Fatalf("screenshot UI is missing MCP Apps result handling")
+	} else if strings.Contains(html, "Preparando a captura") || strings.Contains(html, "capture__empty") {
+		t.Fatalf("screenshot UI still contains a visible loading placeholder")
+	} else if !strings.Contains(html, "[hidden] { display: none !important; }") || !strings.Contains(html, "captureElement.hidden = false") {
+		t.Fatalf("screenshot UI does not reveal only the loaded image")
 	}
 
 	result, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "browser_take_screenshot", Arguments: map[string]any{}})
@@ -387,6 +394,15 @@ func TestApprovalCanCommitOnlyOnce(t *testing.T) {
 	id, _ := structured["approval_id"].(string)
 	if id == "" {
 		t.Fatal("approval ID missing")
+	}
+	var prepareMessage string
+	for _, content := range prepared.Content {
+		if text, ok := content.(*mcp.TextContent); ok {
+			prepareMessage += text.Text
+		}
+	}
+	if !strings.Contains(prepareMessage, "mesmo turno") || strings.Contains(prepareMessage, "Aguarde confirmação explícita") {
+		t.Fatalf("prepare result does not allow current-request authorization: %q", prepareMessage)
 	}
 	params := &mcp.CallToolParams{Name: "browser_commit_action", Arguments: map[string]any{"approval_id": id}}
 	committed, err := client.CallTool(t.Context(), params)

@@ -106,10 +106,16 @@ const navItems = [
 type DashboardProps = {
   initialUser: SessionUser;
   initialBrowsers: ControlBrowser[];
-	mcpURL: string;
+  initialViewerBrowserID?: string;
+  mcpURL: string;
 };
 
-export function Dashboard({ initialUser, initialBrowsers, mcpURL }: DashboardProps) {
+export function Dashboard({
+  initialUser,
+  initialBrowsers,
+  initialViewerBrowserID,
+  mcpURL,
+}: DashboardProps) {
   const router = useRouter();
   const [user, setUser] = useState(initialUser);
   const [section, setSection] = useState<Section>("browsers");
@@ -118,7 +124,12 @@ export function Dashboard({ initialUser, initialBrowsers, mcpURL }: DashboardPro
   );
   const [previewRevision, setPreviewRevision] = useState(0);
   const [viewerBrowser, setViewerBrowser] = useState<BrowserInstance | null>(
-    null,
+    () => {
+      const browser = initialBrowsers.find(
+        (candidate) => candidate.id === initialViewerBrowserID,
+      );
+      return browser ? mapControlBrowser(browser) : null;
+    },
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [renameBrowser, setRenameBrowser] = useState<BrowserInstance | null>(
@@ -277,6 +288,26 @@ export function Dashboard({ initialUser, initialBrowsers, mcpURL }: DashboardPro
           ? `${browser.name} será iniciado.`
           : `${browser.name} será desligado.`,
       );
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  async function setDefaultBrowser(browser: BrowserInstance) {
+    try {
+      const updated = await apiRequest<ControlBrowser>(
+        `/api/browsers/${encodeURIComponent(browser.id)}/default`,
+        { method: "POST" },
+      );
+      setBrowsers((current) =>
+        current.map((candidate) => ({
+          ...(candidate.id === updated.id
+            ? mapControlBrowser(updated)
+            : candidate),
+          isDefault: candidate.id === updated.id,
+        })),
+      );
+      toast.success(`${browser.name} agora é o Chromium padrão.`);
     } catch (error) {
       toast.error(errorMessage(error));
     }
@@ -512,6 +543,7 @@ export function Dashboard({ initialUser, initialBrowsers, mcpURL }: DashboardPro
               onRename={setRenameBrowser}
               onDelete={setDeleteBrowser}
               onTogglePower={togglePower}
+              onSetDefault={setDefaultBrowser}
               onCreate={() => setCreateOpen(true)}
             />
           )}
@@ -561,7 +593,13 @@ export function Dashboard({ initialUser, initialBrowsers, mcpURL }: DashboardPro
       <ViewerDialog
         browser={viewerBrowser}
         open={viewerBrowser !== null}
-        onOpenChange={(open) => !open && setViewerBrowser(null)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setViewerBrowser(null);
+          if (initialViewerBrowserID) {
+            router.replace("/dashboard", { scroll: false });
+          }
+        }}
       />
       <ChatGPTSetupDialog
         open={setupOpen}
@@ -594,6 +632,7 @@ function mapControlBrowser(browser: ControlBrowser): BrowserInstance {
     title: browser.title || "Aguardando o Navego Agent",
     url: browser.url || "O container ainda não informou uma página",
     updatedAt: browser.updated_at,
+    isDefault: browser.is_default,
   };
 }
 
@@ -627,6 +666,7 @@ type BrowserSectionProps = {
   onRename: (browser: BrowserInstance) => void;
   onDelete: (browser: BrowserInstance) => void;
   onTogglePower: (browser: BrowserInstance) => void;
+  onSetDefault: (browser: BrowserInstance) => void;
   onCreate: () => void;
 };
 
@@ -637,6 +677,7 @@ function BrowserSection({
   onRename,
   onDelete,
   onTogglePower,
+  onSetDefault,
   onCreate,
 }: BrowserSectionProps) {
   return (
@@ -694,6 +735,7 @@ function BrowserSection({
               onRename={() => onRename(browser)}
               onDelete={() => onDelete(browser)}
               onTogglePower={() => onTogglePower(browser)}
+              onSetDefault={() => onSetDefault(browser)}
             />
           ))}
         </div>
@@ -873,8 +915,8 @@ function ChatGPTSetupDialog({ open, onOpenChange, mcpURL }: ChatGPTSetupDialogPr
           </div>
           <DialogTitle>Conectar o Navego ao ChatGPT</DialogTitle>
           <DialogDescription>
-            Adicione o servidor MCP uma única vez. O OAuth escolherá qual navegador
-            essa conexão poderá controlar.
+            Adicione o servidor MCP uma única vez. O OAuth conecta sua conta
+            Navego, sem prender o ChatGPT a um único Chromium.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -924,8 +966,8 @@ function ChatGPTSetupDialog({ open, onOpenChange, mcpURL }: ChatGPTSetupDialogPr
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium">Autorize o navegador</p>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Ao entrar com sua conta Navego, escolha a sessão que ficará vinculada
-                  ao ChatGPT.
+                  Entre com sua conta Navego e autorize o acesso. Depois você pode
+                  pedir “use o Trabalho”; sem um nome, o Chromium padrão é usado.
                 </p>
               </div>
             </div>

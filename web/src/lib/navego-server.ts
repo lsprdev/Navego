@@ -83,6 +83,54 @@ export async function getBrowsers(): Promise<ControlBrowser[]> {
   });
 }
 
+export type TakeoverAccessFailure =
+  | "account_mismatch"
+  | "expired"
+  | "browser_unavailable"
+  | "control_unavailable";
+
+export class TakeoverAccessError extends Error {
+  constructor(
+    public readonly kind: TakeoverAccessFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = "TakeoverAccessError";
+  }
+}
+
+export async function resolveTakeoverBrowser(
+  ticket: string,
+): Promise<ControlBrowser> {
+  try {
+    const pocketBase = await authenticatedPocketBase();
+    return await pocketBase.send<ControlBrowser>(
+      `/api/navego/takeovers/${encodeURIComponent(ticket)}`,
+      { method: "GET", requestKey: null },
+    );
+  } catch (error) {
+    if (error instanceof ClientResponseError) {
+      const message =
+        typeof error.response?.message === "string" && error.response.message
+          ? error.response.message
+          : "Não foi possível validar este acesso.";
+      if (error.status === 403) {
+        throw new TakeoverAccessError("account_mismatch", message);
+      }
+      if (error.status === 410 || error.status === 404) {
+        throw new TakeoverAccessError("expired", message);
+      }
+      if (error.status === 409) {
+        throw new TakeoverAccessError("browser_unavailable", message);
+      }
+    }
+    throw new TakeoverAccessError(
+      "control_unavailable",
+      "O control plane não respondeu. Tente novamente em instantes.",
+    );
+  }
+}
+
 export class UnauthorizedError extends Error {
   constructor() {
     super("Sessão ausente ou expirada.");

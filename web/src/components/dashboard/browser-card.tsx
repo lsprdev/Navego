@@ -3,6 +3,7 @@ import {
   PencilLineIcon,
   PowerIcon,
   RefreshCwIcon,
+  StarIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
@@ -22,6 +23,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -35,6 +37,7 @@ type BrowserCardProps = {
   onRename: () => void;
   onDelete: () => void;
   onTogglePower: () => void;
+  onSetDefault: () => void;
 };
 
 const stateLabels: Record<BrowserInstance["state"], string> = {
@@ -51,6 +54,7 @@ export function BrowserCard({
   onRename,
   onDelete,
   onTogglePower,
+  onSetDefault,
 }: BrowserCardProps) {
   const [manualPreviewRevision, setManualPreviewRevision] = useState(0);
 
@@ -75,6 +79,12 @@ export function BrowserCard({
             )}
           />
           <span className="truncate">{browser.name}</span>
+          {browser.isDefault ? (
+            <Badge variant="outline" className="shrink-0">
+              <StarIcon />
+              Padrão
+            </Badge>
+          ) : null}
         </CardTitle>
         <CardDescription className="truncate font-mono text-[11px]">
           {browser.id}
@@ -93,23 +103,33 @@ export function BrowserCard({
               <MoreHorizontalIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={onRename}>
-                <PencilLineIcon />
-                Renomear
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onTogglePower}>
-                <PowerIcon />
-                {browser.state === "running" ? "Desligar" : "Ligar"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={refreshPreview}>
-                <RefreshCwIcon />
-                Atualizar prévia
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={onRename}>
+                  <PencilLineIcon />
+                  Renomear
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onTogglePower}>
+                  <PowerIcon />
+                  {browser.state === "running" ? "Desligar" : "Ligar"}
+                </DropdownMenuItem>
+                {browser.isDefault ? null : (
+                  <DropdownMenuItem onClick={onSetDefault}>
+                    <StarIcon />
+                    Tornar padrão
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={refreshPreview}>
+                  <RefreshCwIcon />
+                  Atualizar prévia
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                <Trash2Icon />
-                Excluir
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                  <Trash2Icon />
+                  Excluir
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </CardAction>

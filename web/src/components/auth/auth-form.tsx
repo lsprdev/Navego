@@ -27,9 +27,10 @@ import { Input } from "@/components/ui/input";
 
 type AuthFormProps = {
   mode: "login" | "register";
+  returnTo?: string;
 };
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthForm({ mode, returnTo = "/dashboard" }: AuthFormProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -55,7 +56,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       if (!response.ok) {
         throw new Error(body.error || "Não foi possível entrar no Navego.");
       }
-      router.replace("/dashboard");
+      router.replace(returnTo);
       router.refresh();
     } catch (caught) {
       setError(
@@ -213,7 +214,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {registering ? "Já tem uma conta?" : "Ainda não tem uma conta?"}{" "}
             <Link
-              href={registering ? "/login" : "/register"}
+              href={`${registering ? "/login" : "/register"}?returnTo=${encodeURIComponent(returnTo)}`}
               className="font-medium text-foreground underline decoration-border underline-offset-4 hover:decoration-primary"
             >
               {registering ? "Entrar" : "Criar agora"}
