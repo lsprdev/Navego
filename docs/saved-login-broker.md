@@ -1,5 +1,13 @@
 # Broker de logins salvos
 
+> **Documento histórico.** Este desenho dependia dos overlays
+> `compose.go.yaml` e `compose.credentials.example.yaml`, removidos na migração
+> para o dashboard multiusuário. O CRUD cifrado do vault novo já está
+> implementado e documentado em
+> [`dashboard-platform-plan.md`](dashboard-platform-plan.md), mas a entrega
+> just-in-time ao worker ainda está pendente. Este fluxo baseado em arquivos não
+> deve ser reativado.
+
 O broker permite que o Navego autentique uma conta sem enviar usuário ou senha
 ao ChatGPT, ao protocolo MCP ou aos logs. Ele é opcional; sem manifesto, o fluxo
 de takeover humano continua sendo o padrão.

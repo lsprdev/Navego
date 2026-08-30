@@ -1,174 +1,108 @@
 # Navego
 
-Gateway MCP em Go para controlar um Chromium visível e persistente. O Navego
-permite ao ChatGPT ou a outro cliente MCP navegar, interagir, solicitar login
-humano, capturar screenshots/PDFs e executar ações externas com confirmação em
-duas etapas.
+Plataforma em Go para criar e controlar Chromiums persistentes pelo dashboard e,
+na próxima etapa, pelo ChatGPT via MCP.
 
-## Arquitetura
+## Arquitetura atual
 
 ```text
-Codex / ChatGPT
-       |
-       v
-Gateway MCP Go ---- CDP em loopback ---- Chromium + GUI
-                                             |
-                                      volume /config
+Next.js BFF ── PocketBase + control plane Go ── Navego Agent ── Docker Engine
+                                                        │
+                                           Chromium + worker Go
+                                           por navegador criado
 ```
 
-O gateway compartilha o namespace de rede do Chromium. Assim, o CDP permanece
-em `127.0.0.1:9222`, sem exposição no host ou na Internet. O perfil persistente
-fica no volume `navego-browser-data`.
+- `web/`: dashboard Next.js 16, React 19, Tailwind e shadcn/ui;
+- `cmd/navego-control`: PocketBase, autenticação, estado desejado, previews e
+  tickets curtos do viewer;
+- `cmd/navego-agent`: único processo com acesso ao socket Docker;
+- `cmd/navego`: worker MCP que acompanha cada Chromium;
+- `docker/chromium/`: imagem Chromium customizada e scripts de inicialização.
 
-Existem dois modos de navegação dentro do mesmo Chromium:
-
-- abas persistentes compartilham cookies, storage e sessões do perfil;
-- `browser_new_private_tab` cria um BrowserContext efêmero e isolado, equivalente
-  ao uso prático de uma janela anônima. Ao fechar a aba proprietária, todo o
-  contexto privado é descartado.
-
-Uma janela privada isola cookies e storage, mas continua no mesmo processo e
-container. Ela não é uma fronteira forte de segurança contra código hostil.
-
-## O que funciona
-
-- MCP Streamable HTTP com o SDK Go oficial;
-- navegação, snapshots compactos, metadados Open Graph, busca e espera;
-- clique e digitação de texto não secreto;
-- hover, scroll, teclas permitidas e seleção em `<select>` nativo;
-- abas persistentes e contextos privados efêmeros;
-- screenshot inline via MCP Apps UI e exportação de PDF;
-- bloqueio de senha, IPs locais/reservados, DNS misto, redirects e subrequests;
-- takeover humano para senha, OTP, passkey, MFA ou CAPTCHA;
-- broker opcional de logins salvos por origem, sem expor usuário ou senha ao MCP;
-- `prepare -> confirmação -> commit` para publicar, enviar, comprar ou excluir;
-- OAuth 2.1 para produção, com RFC 9728, JWT/JWKS, audience, subject allowlist e
-  scopes progressivos por tool;
-- Compose local, ngrok de teste e Compose Dokploy/Traefik de produção.
-
-Não há tool de JavaScript arbitrário, cookies/storage, shell, filesystem, upload
-ou CDP bruto.
+O dashboard nunca recebe o token PocketBase no JavaScript: as Route Handlers do
+Next.js atuam como BFF e guardam a sessão em cookie HttpOnly. O agent aceita
+somente uma configuração Docker definida no código, valida labels de ownership e
+não expõe uma API de `docker run` arbitrário.
 
 ## Subir localmente
 
-Pré-requisitos: Docker Compose v2 e Go 1.26 para os testes locais.
+Pré-requisitos: Docker Compose v2. O Go local é necessário somente para testes e
+desenvolvimento fora dos containers.
 
-```bash
+```sh
 cp .env.example .env
-docker compose -f compose.yaml -f compose.go.yaml up --build -d
-docker compose -f compose.yaml -f compose.go.yaml ps
+docker compose --profile images build
+docker compose up --build -d
+docker compose ps
 ```
 
-Endpoints:
+Abra:
 
-- MCP: `http://127.0.0.1:8001/mcp`
-- health: `http://127.0.0.1:8001/healthz`
-- Chromium GUI HTTPS: `https://127.0.0.1:3001`
-- Chromium GUI HTTP: `http://127.0.0.1:3000`
+- dashboard: `http://127.0.0.1:3000`;
+- health do control plane: `http://127.0.0.1:8090/api/navego/healthz`.
 
-O certificado HTTPS local é autoassinado. Não remova o volume
-`navego-browser-data` ao recriar os containers; ele contém as sessões dos sites.
+Ao criar um navegador, o agent provisiona um volume de perfil e dois containers
+com nomes derivados do ID do registro. Eles não publicam CDP nem portas no host.
+O primeiro clique no card carrega uma captura estática; o segundo emite um ticket
+de uso único e abre o Selkies em um diálogo de 90% da tela.
 
-## Usar pelo Codex
+> O socket Docker concede poder equivalente a root no host. Ele é montado apenas
+> no `navego-agent`. Este MVP é indicado para um servidor próprio e usuários
+> confiáveis, não para cadastro público hostil.
 
-O projeto inclui [`.codex/config.toml`](.codex/config.toml), apontando para o MCP
-local. Depois de subir os containers:
+## Estado das funcionalidades
 
-1. reinicie o Codex para recarregar a configuração;
-2. use `/mcp` para verificar `navego`;
-3. peça algo inofensivo, como “abra example.com e tire um print”.
+Já implementado:
 
-Para uma navegação isolada, peça naturalmente “abra este site anonimamente”. O
-cliente deve usar `browser_new_private_tab`; não são necessários os antigos
-prefixos de seleção de backend.
+- cadastro, login, logout e sessão HttpOnly;
+- perfil, troca de senha e trilha de atividade;
+- isolamento dos registros por usuário no PocketBase;
+- criar, renomear, ligar, desligar e excluir navegadores;
+- reconciliação idempotente pelo agent, volumes, labels e limites de recursos;
+- previews PNG autenticados;
+- viewer reverso com ticket curto, cookie HttpOnly e suporte a WebSocket;
+- heartbeat com título e URL atuais dos Chromiums;
+- CRUD de acessos cifrados com AES-256-GCM, sem leitura da senha pela API;
+- worker MCP com navegação, takeover humano, screenshots e confirmação de ações.
 
-## Login humano
+Ainda em desenvolvimento:
 
-Quando aparecer senha, passkey, OTP, CAPTCHA ou MFA:
+- proxy MCP multiusuário no control plane e OAuth próprio para o ChatGPT;
+- entrega just-in-time do vault ao worker com approval de uso único;
+- convite/limites configuráveis e hardening final do Dokploy.
 
-1. o cliente chama `browser_request_human_login`;
-2. todas as operações de browser ficam bloqueadas;
-3. abra `https://127.0.0.1:3001` e autentique diretamente no Chromium;
-4. volte ao chat e responda `pronto`;
-5. o cliente chama `browser_resume_after_human` e continua na mesma aba.
+Portanto, o atalho “Conectar ao ChatGPT” já mostra a experiência planejada, mas
+o endpoint multiusuário `/mcp` do novo control plane só ficará operacional no
+milestone de OAuth. O overlay [`compose.ngrok.yaml`](compose.ngrok.yaml) está
+preservado para esse teste futuro.
 
-Nunca envie credenciais pelo chat. O takeover é reservado a autenticação; menus
-e elementos difíceis continuam sendo controlados pelas tools do navegador.
-Login concluído não aprova publicação, compra, exclusão ou outra ação externa.
-
-## Login salvo sem revelar a senha ao modelo
-
-Para contas dedicadas e de baixo privilégio, o gateway pode ler usuário e senha
-de Docker secrets. O modelo vê somente o label da conta e a origem HTTPS exata,
-e o envio exige `prepare -> confirmação -> commit`. MFA, passkey e CAPTCHA
-continuam no takeover humano.
-
-O modelo não conhece a credencial, mas depois do login controla a sessão com os
-privilégios da conta. Não use esse recurso para e-mail principal, banco, contas
-administrativas ou recuperação de outras contas. A configuração completa e o
-modelo de ameaça estão em [`docs/saved-login-broker.md`](docs/saved-login-broker.md).
-
-## Publicar no X
-
-O fluxo esperado é:
-
-1. abrir `https://x.com` em uma aba persistente;
-2. solicitar login humano, se necessário;
-3. preencher o rascunho sem publicar;
-4. chamar `browser_prepare_action` no botão final;
-5. mostrar texto, destino e campos ao usuário;
-6. aguardar confirmação explícita;
-7. chamar `browser_commit_action` uma única vez.
+O cofre local usa `NAVEGO_VAULT_KEY`. A chave de desenvolvimento do exemplo é
+intencionalmente pública; gere uma chave exclusiva com `openssl rand -base64 32`
+antes de salvar qualquer credencial real ou fazer deploy.
 
 ## Validar
 
-```bash
+```sh
 go test ./...
-go test -race ./...
 go vet ./...
-go run ./cmd/mcp-smoke
+cd web
+npx tsc --noEmit
+npm run lint
+npm run build
 ```
 
-O smoke principal testa transporte Streamable HTTP, navegação, busca, espera,
-takeover, retomada, abas e screenshot. O contexto privado também é validado por
-um smoke CDP real durante o desenvolvimento.
+O plano e as decisões de arquitetura estão em
+[`docs/dashboard-platform-plan.md`](docs/dashboard-platform-plan.md).
 
-## ngrok para teste no ChatGPT
+## Deploy
 
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.go.yaml \
-  -f compose.ngrok.yaml \
-  up --build -d
-```
+[`compose.dokploy.yaml`](compose.dokploy.yaml) prepara:
 
-Descubra a URL em `http://127.0.0.1:4040/api/tunnels` e acrescente `/mcp`. Para
-OAuth, a URL pública precisa permanecer estável e ser usada tanto em
-`MCP_PUBLIC_URL` quanto em `MCP_OAUTH_AUDIENCE`.
+- `https://browser.lspr.dev` para dashboard e viewer;
+- `https://mcp.browser.lspr.dev/mcp` para o MCP futuro;
+- Traefik somente na frente das rotas públicas necessárias;
+- control, agent, Docker socket e rede dos Chromiums fora da exposição direta.
 
-Não deixe um túnel sem autenticação aberto além do teste e não use contas
-sensíveis nessa configuração temporária.
-
-## Deploy no Dokploy
-
-O deploy usa [`compose.dokploy.yaml`](compose.dokploy.yaml):
-
-- `https://browser.lspr.dev` — GUI protegida pelo Cloudflare Access;
-- `https://mcp.browser.lspr.dev/mcp` — MCP protegido por OAuth.
-
-Variáveis e instruções estão em [`.env.production.example`](.env.production.example)
-e [`docs/production-deployment.md`](docs/production-deployment.md).
-
-## Limites atuais
-
-- um navegador e um usuário por instância;
-- takeover e approvals ficam em memória;
-- ainda faltam downloads, iframes e suporte genérico a comboboxes customizados;
-- a produção ainda deve adicionar uma política de egress para fechar totalmente
-  a janela TOCTOU de DNS rebinding;
-- OAuth, Cloudflare Access e Dokploy precisam ser validados com os secrets reais;
-- snapshots ainda podem ser otimizados para reduzir tokens.
-
-Veja o plano atual em [`docs/chromium-only-plan.md`](docs/chromium-only-plan.md)
-e o inventário em [`docs/implementation-status.md`](docs/implementation-status.md).
+Cloudflare Access continua recomendado para o dashboard. O viewer exige também
+o ticket interno do Navego, então conhecer a URL base não concede acesso a um
+Chromium.

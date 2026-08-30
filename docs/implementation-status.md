@@ -1,155 +1,116 @@
-# Status da implementação do gateway Go
+# Status da implementação do Navego
 
-Data da validação: 28 de agosto de 2026.
+Data da validação: 29 de agosto de 2026.
 
 ## Estado atual
 
-O Navego usa uma arquitetura Chromium-only. O antigo adapter Obscura, o router
-híbrido e os prefixos `ob:`/`ch:` foram removidos. Leitura pública, navegação
-autenticada, interação, screenshot e PDF usam o mesmo Chromium controlado pelo
-gateway Go.
+O Navego agora possui um control plane multiusuário em construção, um dashboard
+Next.js e provisionamento dinâmico de Chromiums. A arquitetura antiga de um
+único Chromium continua documentada apenas como histórico. Em 29 de agosto de
+2026, seus containers locais foram removidos após confirmação do usuário; os
+volumes persistentes não foram apagados.
 
-Componentes:
+```text
+Next.js BFF -> control Go + PocketBase -> agent Go -> Docker Engine
+                                                 -> Chromium + worker por registro
+```
 
-- `cmd/navego`: processo HTTP, configuração, logs e graceful shutdown;
-- `internal/mcpserver`: 25 tools MCP com schemas, annotations e instruções;
-- `internal/browser`: CDP, política de URL, snapshots, refs, metadados, tabs,
-  BrowserContexts privados, find/wait, screenshot e PDF;
-- `internal/credentials` e `internal/loginapproval`: manifesto de contas,
-  confinamento de Docker secrets e approvals de login por origem;
-- `internal/takeover`: bloqueio global durante o controle humano;
-- `internal/approval`: approvals aleatórios, expirando e de uso único;
-- `internal/oauthresource`: discovery OIDC, JWT/JWKS, audience, subject allowlist
-  e scopes;
-- `internal/httpserver`: Streamable HTTP, limites, headers, CSRF, Bearer local e
-  metadata RFC 9728;
-- `cmd/mcp-smoke`: teste E2E do transporte e dos boundaries principais;
-- `compose.go.yaml`: gateway no namespace de rede do Chromium;
-- `compose.dokploy.yaml`: deploy Traefik sem CDP ou portas diretas públicas.
+Componentes ativos:
 
-Tools expostas:
+- `web/`: cadastro, login, sessão HttpOnly, perfil, troca de senha, dashboard e
+  BFF;
+- `cmd/navego-control`: PocketBase, API autenticada, estado desejado, previews e
+  proxy do viewer;
+- `cmd/navego-agent`: reconciliação e único acesso ao Docker socket;
+- `cmd/navego`: worker MCP e automação CDP de cada Chromium;
+- `docker/chromium/`: imagem do Chromium com Selkies e CDP restrito;
+- `compose.yaml`: ambiente local consolidado;
+- `compose.dokploy.yaml`: base do deploy com Traefik;
+- `compose.ngrok.yaml`: overlay temporário para futuros testes do MCP.
 
-- `browser_status`
-- `browser_open`
-- `browser_snapshot`
-- `browser_find`
-- `browser_wait`
-- `browser_list_tabs`
-- `browser_new_tab`
-- `browser_new_private_tab`
-- `browser_switch_tab`
-- `browser_close_tab`
-- `browser_click`
-- `browser_type`
-- `browser_hover`
-- `browser_press_key`
-- `browser_select_option`
-- `browser_scroll`
-- `browser_take_screenshot`
-- `browser_export_pdf`
-- `browser_request_human_login`
-- `browser_resume_after_human`
-- `browser_prepare_saved_login`
-- `browser_commit_saved_login`
-- `browser_prepare_action`
-- `browser_commit_action`
-- `browser_cancel_action`
+## Entregue neste milestone
 
-## Abas persistentes e privadas
+- PocketBase 0.40.1 embutido no processo Go e migrations versionadas;
+- collections de browsers, credenciais cifradas, OAuth futuro e auditoria;
+- isolamento de registros por usuário e limite inicial de cinco browsers;
+- criar, renomear, ligar, desligar e excluir pelo dashboard;
+- menu de conta com edição de nome e troca de senha que encerra a sessão atual;
+- atividade recente ligada à trilha de auditoria do PocketBase, com atualização
+  manual e identificação do navegador afetado;
+- cofre de acessos com CRUD autenticado, origem HTTPS canônica e payload
+  AES-256-GCM vinculado ao dono e à origem;
+- senha nunca retornada pelas APIs de listagem, criação ou edição; uma edição
+  com senha vazia preserva o valor já cifrado;
+- agent idempotente com labels de ownership, volumes determinísticos, limites de
+  CPU/memória/PIDs, logs rotacionados e reconciliação após restart;
+- título, URL e heartbeat de cada Chromium reportados pelo worker ao control
+  plane, com atualização automática dos cartões;
+- somente o agent monta `/var/run/docker.sock`;
+- worker no namespace de rede do Chromium, sem CDP ou portas no host;
+- preview PNG autenticado e com `no-store`;
+- cards com preview estático sob demanda, evitando várias sessões Selkies;
+- viewer em diálogo de 90%, com ticket aleatório de uso único, cookie HttpOnly e
+  proxy HTTP/WebSocket;
+- Dockerfiles separados para control, agent/worker e frontend standalone;
+- rotas Traefik separadas para dashboard/viewer e MCP futuro.
 
-`browser_new_tab` cria uma aba que compartilha o perfil persistente, incluindo
-cookies e sessões autenticadas.
+## Validação executada
 
-`browser_new_private_tab` cria um novo BrowserContext CDP com uma janela visível:
-
-- cookies, cache e storage ficam isolados do perfil persistente;
-- `browser_list_tabs` marca suas páginas com `private: true`;
-- a aba inicial é proprietária do contexto;
-- ao fechar a proprietária, o gateway descarta todo o BrowserContext;
-- após o descarte, uma aba persistente volta a ser a ativa.
-
-Essa separação equivale ao uso prático de uma janela anônima, mas permanece no
-mesmo processo/container e não deve ser tratada como sandbox forte.
-
-## Segurança e fluxo humano
-
-- CDP permanece em loopback e não é publicado no host.
-- O perfil persistente fica no volume `navego-browser-data`.
-- Password inputs nunca aceitam `browser_type`.
-- Logins salvos opcionais são vinculados à origem HTTPS exata, lidos somente
-  depois de confirmação e nunca retornados por MCP; valores protegidos que
-  reapareçam no DOM são redigidos dos snapshots.
-- `browser_request_human_login` é usado somente para senha, MFA, passkey, OTP ou
-  CAPTCHA; menus difíceis continuam automatizados.
-- Ações finais sensíveis não podem usar `browser_click`; exigem
-  `prepare/commit` após confirmação explícita.
-- URLs, redirects e subrequests são validados contra destinos privados e
-  reservados.
-- O gateway é OAuth Resource Server; emissão, consentimento, PKCE e refresh
-  token pertencem a um authorization server estabelecido.
-- Scopes cumulativos: `browser:read`, `browser:capture`, `browser:interact`,
-  `browser:takeover` e `browser:write`.
-
-## Validações
-
-Suíte esperada:
+Passaram:
 
 ```text
 go test ./...
-go test -race ./...
 go vet ./...
-docker build -t navego-gateway:local .
-docker compose -f compose.yaml -f compose.go.yaml config
-docker compose --env-file .env.production.example -f compose.dokploy.yaml config
-go run ./cmd/mcp-smoke
+TypeScript sem emissão
+ESLint
+Next.js production build com Webpack
+docker compose config
+docker compose -f compose.dokploy.yaml config
+git diff --check
 ```
 
-O E2E real anterior no X validou logout protegido, login humano sem transferência
-de credenciais, preenchimento verificado e publicação após approval de uso único.
-O teste de screenshot no ChatGPT também validou o card MCP Apps inline.
+O smoke local real também passou:
 
-O smoke Chromium-only deste milestone também passou:
+1. uma conta descartável criou um browser em estado `queued`;
+2. o agent assumiu o registro e criou Chromium, worker e volume;
+3. o browser chegou a `running`;
+4. o preview retornou um PNG válido de 23 KB;
+5. o viewer trocou um ticket descartável por uma sessão e retornou a interface
+   Selkies pelo proxy com HTTP 200;
+6. a exclusão removeu os dois containers e o volume, sempre filtrando pelas
+   labels do browser de teste.
 
-1. as duas abas existentes do perfil foram preservadas e não foram marcadas como
-   privadas;
-2. `browser_new_private_tab` abriu `example.com` em uma janela marcada com
-   `private: true`;
-3. um cookie `NavegoIsolation=profile` ficou visível no perfil persistente e o
-   mesmo endpoint retornou `{}` no contexto privado;
-4. ao fechar a aba proprietária, o contexto privado desapareceu e o gateway
-   voltou a uma aba persistente;
-5. o smoke completo confirmou as 19 tools então existentes, takeover, resume,
-   tabs e screenshot;
-6. somente o gateway foi recriado; o ID do Chromium e o volume
-   `navego-browser-data` permaneceram iguais.
+A telemetria também foi validada com dois navegadores simultâneos: os títulos,
+URLs e `last_seen` reportados pelo agent foram persistidos no PocketBase sem
+reiniciar os Chromiums existentes.
 
-Na extensão atual, o smoke local confirmou as 25 tools. `browser_scroll` e
-`browser_press_key` passaram no fluxo principal; `browser_select_option` mudou
-um `<select>` público de teste de `dd3` para `dd5`, e `browser_hover` moveu o
-cursor sem clicar. O broker desativado reconheceu um formulário real e recusou
-o prepare antes de preencher qualquer campo. O commit de login permanece
-coberto por teste isolado com secrets descartáveis; o E2E real deve usar apenas
-uma conta de teste criada para esse fim.
+O cofre passou por um smoke isolado com conta descartável: criação, listagem sem
+senha, atualização preservando a senha, exclusão da credencial e remoção da
+conta de teste com HTTP 204.
 
-## Decisões
+## Pendências intencionais
 
-- Um único Chromium reduz código, memória operacional, ambiguidades de routing e
-  divergências de renderização.
-- Páginas públicas que pedirem isolamento usam BrowserContext privado em vez de
-  outro engine.
-- O Chromium usa `PIXELFLUX_WAYLAND=false`; a imagem testada bloqueou
-  `Page.captureScreenshot` no Wayland, enquanto X11 preservou a captura CDP.
-- Gateway e Chromium compartilham namespace de rede para manter CDP em loopback.
-- PocketBase não é necessário enquanto houver um usuário e estado efêmero.
-- O gateway não cancela targets persistentes no shutdown normal, preservando
-  abas quando apenas o sidecar Go é recriado.
+1. Implementar authorization server OAuth e proxy MCP multiusuário no control
+   plane. O worker MCP já existe, mas o novo endpoint público ainda não roteia
+   grants por usuário/browser.
+2. Ligar o cofre ao broker de login do worker através do futuro proxy MCP. Até
+   lá, os segredos podem ser gerenciados no dashboard, mas não são injetados no
+   Chromium.
+3. Adicionar convites, quotas configuráveis, recuperação de senha e hardening de
+   cadastro antes de permitir usuários não confiáveis.
+4. Executar E2E de WebSocket e controle humano no domínio final atrás do
+   Traefik; o proxy HTTP e a emissão/consumo do ticket já foram validados localmente.
+5. Configurar secrets, backup/restore e Cloudflare Access no deploy.
 
-## Limitações e próximos passos
+## Limites de segurança do MVP
 
-1. Validar novamente o connector do ChatGPT após atualizar o schema das tools.
-2. Fazer um E2E local do broker apenas com uma conta descartável de teste.
-3. Configurar Auth0, Cloudflare Access e Dokploy com secrets reais.
-4. Adicionar egress externo contra DNS rebinding.
-5. Implementar iframes, comboboxes customizados e menus que usam portais DOM.
-6. Adicionar downloads e auditoria persistente conforme a necessidade.
-7. Reduzir tokens com snapshots incrementais e respostas mais compactas.
+- controlar o Docker socket equivale a poder administrativo no host; o agent
+  precisa ser tratado como componente privilegiado;
+- containers são isolamento operacional, não uma fronteira equivalente a VM;
+- tickets do viewer ficam em memória e são perdidos ao reiniciar o control;
+- o token agent e a chave worker são globais no host neste estágio;
+- perder `NAVEGO_VAULT_KEY` torna os payloads cifrados irrecuperáveis; rotação de
+  chave ainda será implementada antes de produção.
+
+O plano principal e as decisões detalhadas ficam em
+[`dashboard-platform-plan.md`](dashboard-platform-plan.md).

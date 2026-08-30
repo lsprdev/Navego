@@ -1,5 +1,10 @@
 # Plano Chromium-only do Navego
 
+> **Documento histórico.** A decisão de usar apenas Chromium continua válida,
+> mas o runtime atual cria um par Chromium + worker por registro. Consulte
+> [`dashboard-platform-plan.md`](dashboard-platform-plan.md) para a arquitetura
+> vigente.
+
 Data: 28 de agosto de 2026.
 
 ## Objetivo
