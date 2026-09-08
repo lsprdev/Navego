@@ -1102,6 +1102,10 @@ const snapshotScript = `(() => {
 		el.removeAttribute(refAttribute);
 	}
 	const normalize = value => String(value || "").replace(/\s+/g, " ").trim();
+	// Legacy menus can use table cells or spans with mouse handlers instead of
+	// links, buttons, or ARIA roles. Keep the ref on the event-bearing element
+	// so normal pointer events (including hover) reach the site's own handler.
+	const mouseControlSelector = "[onclick],[onmousedown],[onmouseup],[onmouseover],[onmouseenter],[onpointerdown],[onpointerup],[onpointerover],[onpointerenter]";
 	const visible = el => {
 		const style = getComputedStyle(el);
 		const rect = el.getBoundingClientRect();
@@ -1124,6 +1128,7 @@ const snapshotScript = `(() => {
 			return "textbox";
 		}
 		if (el.isContentEditable) return "textbox";
+		if (el.matches(mouseControlSelector)) return "button";
 		return tag;
 	};
 	const nameFor = el => {
@@ -1140,7 +1145,7 @@ const snapshotScript = `(() => {
 		).slice(0, 180);
 	};
 	const candidates = document.querySelectorAll(
-		"a[href],button,input,textarea,select,[role],[contenteditable='true'],[tabindex]:not([tabindex='-1'])"
+		"a[href],button,input,textarea,select,[role],[contenteditable='true'],[tabindex]:not([tabindex='-1'])," + mouseControlSelector
 	);
 	const elements = [];
 	for (const el of candidates) {

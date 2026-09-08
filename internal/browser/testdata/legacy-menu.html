@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Menu legado</title>
+<style>
+  td, button, input { padding: 12px; }
+  #cmSubMenuID1 { display: none; }
+</style>
+<script>
+  function cmItemMouseOver(item, theme, level, submenu) {
+    document.getElementById(submenu).style.display = 'table';
+  }
+  function cmItemMouseOut() {}
+  function cmItemMouseDown() {}
+  function cmItemMouseUp() {}
+</script>
+<table><tr>
+<td class="ThemeOfficeMainItem" onmouseover="cmItemMouseOver (this,'ThemeOffice',1,'cmSubMenuID1','hbr',0)" onmouseout="cmItemMouseOut (this,500)" onmousedown="cmItemMouseDown (this,0)" onmouseup="cmItemMouseUp (this,0)"><span class="ThemeOfficeMainFolderLeft"><img src="/sigaa/img/icones/ensino_menu.gif"></span><span class="ThemeOfficeMainFolderText">Ensino</span><span class="ThemeOfficeMainFolderRight">&nbsp;</span></td>
+<td>Texto sem ação</td>
+</tr></table>
+<table id="cmSubMenuID1"><tr>
+  <td onmouseup="document.getElementById('result').textContent = 'Consulta aberta'">Consultar Minhas Notas</td>
+</tr></table>
+<p id="result"></p>
+<button onclick="this.textContent = 'Atualizado'">Botão nativo</button>
+<input type="password" aria-label="Senha" value="fixture-password">
+<div onclick="void 0">Excluir</div>
+<div onmouseenter="void 0">Menu por hover</div>
+<div onpointerdown="void 0">Controle por ponteiro</div>
+<div onclick="void 0" style="display:none">Controle oculto</div>
+<div onclick="void 0" aria-hidden="true">Controle aria-hidden</div>
+<button onclick="void 0" disabled>Controle desabilitado</button>
+</html>

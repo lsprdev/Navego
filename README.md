@@ -134,6 +134,14 @@ npm run build
 O plano e as decisões de arquitetura estão em
 [`docs/dashboard-platform-plan.md`](docs/dashboard-platform-plan.md).
 
+O teste de menus legados usa Chrome/Chromium headless com perfil temporário
+isolado e verifica snapshot, busca, hover e clique, incluindo menus baseados em
+`td` com eventos de mouse como os do SIGAA:
+
+```sh
+NAVEGO_TEST_CHROME=/caminho/para/chromium go test -tags=integration ./internal/browser -run TestLegacyMenuSnapshotAndInteractions -count=1
+```
+
 ## Deploy
 
 [`compose.dokploy.yaml`](compose.dokploy.yaml) prepara:
