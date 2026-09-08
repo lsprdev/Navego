@@ -282,7 +282,7 @@ func TestOAuthProtectsMCPAndPublishesBothMetadataLocations(t *testing.T) {
 		MCPServer: server,
 		Browser:   stubBrowser{},
 		OAuth: &OAuthOptions{
-			PublicURL:           "https://mcp.browser.lspr.dev/mcp",
+			PublicURL:           "https://mcp.navego.lspr.dev/mcp",
 			AuthorizationServer: "https://tenant.example.com/",
 			TokenVerifier:       verifier,
 		},
@@ -304,7 +304,7 @@ func TestOAuthProtectsMCPAndPublishesBothMetadataLocations(t *testing.T) {
 	if missing.Code != http.StatusUnauthorized {
 		t.Fatalf("missing token status = %d, want 401", missing.Code)
 	}
-	wantChallenge := `resource_metadata="https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource"`
+	wantChallenge := `resource_metadata="https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource"`
 	if got := missing.Header().Get("WWW-Authenticate"); !strings.Contains(got, wantChallenge) || !strings.Contains(got, `scope="browser:read"`) {
 		t.Fatalf("WWW-Authenticate = %q", got)
 	}

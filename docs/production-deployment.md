@@ -6,10 +6,10 @@ Este runbook publica:
 
 | URL | Destino | Autorização |
 | --- | --- | --- |
-| `https://browser.lspr.dev/` | GUI do Chromium | Cloudflare Access |
-| `https://mcp.browser.lspr.dev/mcp` | Gateway MCP Go | OAuth 2.1 via Auth0 |
-| `https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource` | metadata RFC 9728 | pública |
-| `https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource/mcp` | metadata específica do endpoint | pública |
+| `https://navego.lspr.dev/` | GUI do Chromium | Cloudflare Access |
+| `https://mcp.navego.lspr.dev/mcp` | Gateway MCP Go | OAuth 2.1 via Auth0 |
+| `https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource` | metadata RFC 9728 | pública |
+| `https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource/mcp` | metadata específica do endpoint | pública |
 
 O arquivo de deploy é [`compose.dokploy.yaml`](../compose.dokploy.yaml). Ele não
 publica portas no host. O Traefik alcança os ports `3000` e `8001` no namespace
@@ -24,7 +24,7 @@ Client ID Metadata Documents (CIMD) e o parâmetro `resource`.
 No Auth0:
 
 1. Crie uma API/resource server com identifier exato
-   `https://mcp.browser.lspr.dev/mcp` e tokens JWT assinados assimetricamente.
+   `https://mcp.navego.lspr.dev/mcp` e tokens JWT assinados assimetricamente.
 2. Cadastre estas permissions:
    - `browser:read`
    - `browser:capture`
@@ -47,7 +47,7 @@ No Auth0:
 O gateway busca o discovery document ao iniciar e recusa subir se o issuer não
 anunciar `S256`. Em cada request ele valida assinatura via JWKS, issuer,
 audience, expiração e subject. O audience precisa ser exatamente
-`https://mcp.browser.lspr.dev/mcp`.
+`https://mcp.navego.lspr.dev/mcp`.
 
 Referências:
 
@@ -58,14 +58,14 @@ Referências:
 
 ## 2. Configurar Cloudflare Access
 
-Crie uma aplicação self-hosted para `browser.lspr.dev` sem path:
+Crie uma aplicação self-hosted para `navego.lspr.dev` sem path:
 
 - action `Allow`;
 - include somente o e-mail exato do proprietário;
 - exija MFA no IdP ou independent MFA;
 - use uma duração de sessão compatível com o uso pessoal.
 
-Não inclua `mcp.browser.lspr.dev` nessa aplicação do Cloudflare Access. O
+Não inclua `mcp.navego.lspr.dev` nessa aplicação do Cloudflare Access. O
 ChatGPT não apresenta a sessão do Access nas chamadas MCP; esse host é protegido
 pelo OAuth do Auth0 e `/mcp` responde `401` até receber um JWT válido. Os dois
 documentos `/.well-known` são públicos por definição. O DNS do subdomínio MCP
@@ -122,9 +122,9 @@ Referência: [Dokploy: Docker Compose com Traefik](https://docs.dokploy.com/docs
 Execute de uma máquina externa:
 
 ```bash
-curl -i https://mcp.browser.lspr.dev/mcp
-curl -sS https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource
-curl -sS https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource/mcp
+curl -i https://mcp.navego.lspr.dev/mcp
+curl -sS https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource
+curl -sS https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource/mcp
 curl -sS "$MCP_OAUTH_ISSUER/.well-known/openid-configuration"
 ```
 
@@ -139,7 +139,7 @@ Resultados esperados:
 - portas `3000`, `3001`, `8001` e `9222`: inacessíveis diretamente pela
   Internet.
 
-Depois adicione `https://mcp.browser.lspr.dev/mcp` no criador de plugins do ChatGPT,
+Depois adicione `https://mcp.navego.lspr.dev/mcp` no criador de plugins do ChatGPT,
 selecione OAuth e conclua o login. Teste na ordem:
 
 1. `browser_status` e uma leitura pública;

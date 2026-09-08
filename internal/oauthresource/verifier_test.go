@@ -58,7 +58,7 @@ func TestNewDiscoversProviderAndRequiresPKCES256(t *testing.T) {
 
 			_, discovery, err := New(t.Context(), Config{
 				Issuer:          issuer,
-				Audience:        "https://mcp.browser.lspr.dev/mcp",
+				Audience:        "https://mcp.navego.lspr.dev/mcp",
 				AllowedSubjects: []string{"auth0|owner"},
 			}, client)
 			if tc.wantErrorText != "" {
@@ -90,7 +90,7 @@ func TestVerifierValidatesIdentityAudienceExpiryAndScopes(t *testing.T) {
 	}
 	const (
 		issuer   = "https://tenant.example.com/"
-		audience = "https://mcp.browser.lspr.dev/mcp"
+		audience = "https://mcp.navego.lspr.dev/mcp"
 		subject  = "auth0|owner"
 	)
 	jwtVerifier := oidc.NewVerifier(issuer, &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{&privateKey.PublicKey}}, &oidc.Config{
@@ -138,7 +138,7 @@ func TestVerifierRejectsUnallowedSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 	const issuer = "https://tenant.example.com/"
-	const audience = "https://mcp.browser.lspr.dev/mcp"
+	const audience = "https://mcp.navego.lspr.dev/mcp"
 	verifier := &Verifier{
 		issuer:          issuer,
 		audience:        audience,
@@ -166,7 +166,7 @@ func TestVerifierRejectsInvalidAudienceAndExpiredToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	const issuer = "https://tenant.example.com/"
-	const audience = "https://mcp.browser.lspr.dev/mcp"
+	const audience = "https://mcp.navego.lspr.dev/mcp"
 	verifier := &Verifier{
 		issuer:          issuer,
 		audience:        audience,

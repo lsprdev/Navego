@@ -76,11 +76,11 @@ func TestViewerEmbeddingReplacesFrameOptions(t *testing.T) {
 }
 
 func TestPublicDashboardOriginsAreValidatedAndDeduplicated(t *testing.T) {
-	origins, err := validatedPublicOrigins("http://localhost:3000, https://browser.lspr.dev/, http://localhost:3000")
+	origins, err := validatedPublicOrigins("http://localhost:3000, https://navego.lspr.dev/, http://localhost:3000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(origins) != 2 || origins[0] != "http://localhost:3000" || origins[1] != "https://browser.lspr.dev" {
+	if len(origins) != 2 || origins[0] != "http://localhost:3000" || origins[1] != "https://navego.lspr.dev" {
 		t.Fatalf("unexpected origins: %#v", origins)
 	}
 	if _, err := validatedPublicOrigins(" , "); err == nil {
@@ -89,13 +89,13 @@ func TestPublicDashboardOriginsAreValidatedAndDeduplicated(t *testing.T) {
 }
 
 func TestPublicDashboardOriginRejectsPathsAndCredentials(t *testing.T) {
-	valid := []string{"http://127.0.0.1:3000", "https://browser.lspr.dev/"}
+	valid := []string{"http://127.0.0.1:3000", "https://navego.lspr.dev/"}
 	for _, value := range valid {
 		if _, err := validatedPublicOrigin(value); err != nil {
 			t.Fatalf("expected %q to be valid: %v", value, err)
 		}
 	}
-	invalid := []string{"https://browser.lspr.dev/path", "https://user@example.com", "javascript:alert(1)"}
+	invalid := []string{"https://navego.lspr.dev/path", "https://user@example.com", "javascript:alert(1)"}
 	for _, value := range invalid {
 		if _, err := validatedPublicOrigin(value); err == nil {
 			t.Fatalf("expected %q to be rejected", value)
@@ -104,10 +104,10 @@ func TestPublicDashboardOriginRejectsPathsAndCredentials(t *testing.T) {
 }
 
 func TestPublicDashboardURLRejectsPathsAndCredentials(t *testing.T) {
-	if value, err := validatedPublicDashboardURL("https://browser.lspr.dev/"); err != nil || value != "https://browser.lspr.dev" {
+	if value, err := validatedPublicDashboardURL("https://navego.lspr.dev/"); err != nil || value != "https://navego.lspr.dev" {
 		t.Fatalf("expected dashboard URL to be normalized: %q %v", value, err)
 	}
-	for _, value := range []string{"https://browser.lspr.dev/takeover", "https://user@browser.lspr.dev", "javascript:alert(1)"} {
+	for _, value := range []string{"https://navego.lspr.dev/takeover", "https://user@navego.lspr.dev", "javascript:alert(1)"} {
 		if _, err := validatedPublicDashboardURL(value); err == nil {
 			t.Fatalf("expected %q to be rejected", value)
 		}

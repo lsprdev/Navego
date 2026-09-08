@@ -70,11 +70,11 @@ Os endereços escolhidos para produção são:
 
 | Rota | Destino | Proteção |
 | --- | --- | --- |
-| `https://browser.lspr.dev/` | GUI do Chromium | Cloudflare Access |
-| `https://mcp.browser.lspr.dev/mcp` | Gateway MCP Go | OAuth 2.1 do MCP |
-| `https://browser.lspr.dev/control/*` | retomada/status de takeover futuro | Cloudflare Access + validação do JWT no gateway |
-| `https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource` | descoberta OAuth | pública |
-| `https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource/mcp` | descoberta OAuth específica de `/mcp` | pública |
+| `https://navego.lspr.dev/` | GUI do Chromium | Cloudflare Access |
+| `https://mcp.navego.lspr.dev/mcp` | Gateway MCP Go | OAuth 2.1 do MCP |
+| `https://navego.lspr.dev/control/*` | retomada/status de takeover futuro | Cloudflare Access + validação do JWT no gateway |
+| `https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource` | descoberta OAuth | pública |
+| `https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource/mcp` | descoberta OAuth específica de `/mcp` | pública |
 
 O Streamable HTTP usa um único endpoint que aceita `GET` e `POST`; não devemos
 remover o prefixo `/mcp` no Traefik.
@@ -92,11 +92,11 @@ OAuth 2.1 do MCP.
 
 Portanto, no Cloudflare Access teremos:
 
-- aplicação `browser.lspr.dev/*`, com `Allow` apenas para o e-mail do
+- aplicação `navego.lspr.dev/*`, com `Allow` apenas para o e-mail do
   proprietário e MFA/OTP;
 - `/control/*` sem bypass, herdando a proteção humana da aplicação raiz.
 
-O host `mcp.browser.lspr.dev` não recebe Cloudflare Access. O gateway autentica
+O host `mcp.navego.lspr.dev` não recebe Cloudflare Access. O gateway autentica
 todas as chamadas MCP e valida token, audience, issuer, expiração e scopes. WAF
 e rate limiting da zona continuam sendo camadas adicionais, mas não substituem
 OAuth.
@@ -106,8 +106,8 @@ OAuth.
 O deploy de produção usa:
 
 ```text
-https://browser.lspr.dev/       -> GUI + Cloudflare Access
-https://mcp.browser.lspr.dev/mcp -> MCP + OAuth 2.1
+https://navego.lspr.dev/       -> GUI + Cloudflare Access
+https://mcp.navego.lspr.dev/mcp -> MCP + OAuth 2.1
 ```
 
 Isso elimina exceções de Access no mesmo hostname, reduz o risco de uma regra de
@@ -138,7 +138,7 @@ disponibilidade também depende das permissões da conta/workspace.
 
 ### Modo B: endpoint HTTPS público
 
-É o modo necessário para manter `https://mcp.browser.lspr.dev/mcp` e para uma futura
+É o modo necessário para manter `https://mcp.navego.lspr.dev/mcp` e para uma futura
 distribuição pública. Requisitos:
 
 - Streamable HTTP em `/mcp`;
@@ -385,12 +385,12 @@ Fluxo:
 
 1. O Chromium encontra login, CAPTCHA, 2FA ou passkey.
 2. O gateway muda de `AUTOMATION_ACTIVE` para `HUMAN_REQUIRED`.
-3. O ChatGPT recebe `https://browser.lspr.dev` e um takeover ID opaco.
+3. O ChatGPT recebe `https://navego.lspr.dev` e um takeover ID opaco.
 4. O usuário passa pelo Cloudflare Access.
 5. O usuário digita secrets diretamente no site.
 6. Durante `HUMAN_ACTIVE`, todas as tools de browser são bloqueadas.
 7. O usuário responde “pronto” no chat ou usa
-   `https://browser.lspr.dev/control/takeovers/<id>`.
+   `https://navego.lspr.dev/control/takeovers/<id>`.
 8. O gateway valida o JWT do Cloudflare Access, retoma o lease e gera um novo
    snapshot.
 9. Login concluído não equivale a aprovação de uma escrita.
@@ -595,8 +595,8 @@ Routers implementados:
 
 | Router | Regra | Porta |
 | --- | --- | --- |
-| `navego-mcp` | `Host(mcp.browser.lspr.dev) && (Path(/mcp) || Path(/.well-known/...))` | `8001` |
-| `navego-gui` | `Host(browser.lspr.dev)` | `3000` |
+| `navego-mcp` | `Host(mcp.navego.lspr.dev) && (Path(/mcp) || Path(/.well-known/...))` | `8001` |
+| `navego-gui` | `Host(navego.lspr.dev)` | `3000` |
 
 As regras exatas usarão a sintaxe v3 do Traefik. Não haverá middleware
 `StripPrefix` para `/mcp`. Os routers e services terão nomes únicos e todos os
@@ -631,14 +631,14 @@ Internet
 
 Configuração:
 
-1. criar registro DNS proxied para `browser.lspr.dev`;
+1. criar registro DNS proxied para `navego.lspr.dev`;
 2. usar TLS em modo Full (strict);
 3. criar a aplicação Access raiz para o e-mail autorizado;
 4. criar somente os bypasses específicos necessários para MCP e metadata;
 5. adicionar rate limit/WAF para `/mcp`;
 6. bloquear acesso direto à origem, permitindo 80/443 somente pelas redes da
    Cloudflare, ou usar Authenticated Origin Pulls;
-7. validar que requests ao IP do servidor com `Host: browser.lspr.dev` não
+7. validar que requests ao IP do servidor com `Host: navego.lspr.dev` não
    contornam o Access.
 
 ### Hardening opcional: Cloudflare Tunnel
@@ -983,7 +983,7 @@ Depois do primeiro release estável:
 
 Antes de concluir produção, fechar estas escolhas:
 
-1. configurar o endpoint público `mcp.browser.lspr.dev/mcp` com OAuth;
+1. configurar o endpoint público `mcp.navego.lspr.dev/mcp` com OAuth;
 2. escolher Secure MCP Tunnel como fallback de desenvolvimento ou endpoint público
    com OAuth;
 3. escolher o authorization server compatível com MCP;
@@ -994,4 +994,4 @@ Antes de concluir produção, fechar estas escolhas:
 
 Minha recomendação é manter um único perfil de teste, compras bloqueadas e o
 Secure MCP Tunnel apenas como fallback de desenvolvimento. O endpoint público
-fica em `mcp.browser.lspr.dev` com OAuth.
+fica em `mcp.navego.lspr.dev` com OAuth.

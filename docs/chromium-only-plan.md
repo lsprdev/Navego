@@ -129,8 +129,8 @@ Serviços:
 
 Produção:
 
-- `browser.lspr.dev` -> GUI Chromium, protegida por Cloudflare Access;
-- `mcp.browser.lspr.dev/mcp` -> gateway, protegido por OAuth;
+- `navego.lspr.dev` -> GUI Chromium, protegida por Cloudflare Access;
+- `mcp.navego.lspr.dev/mcp` -> gateway, protegido por OAuth;
 - Traefik alcança `3000` e `8001` pela `dokploy-network`;
 - CDP `9222` continua em loopback e não é roteado;
 - nenhum container Obscura ou rede interna adicional é necessário.

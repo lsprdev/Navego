@@ -138,8 +138,8 @@ O plano e as decisões de arquitetura estão em
 
 [`compose.dokploy.yaml`](compose.dokploy.yaml) prepara:
 
-- `https://browser.lspr.dev` para dashboard e viewer;
-- `https://mcp.browser.lspr.dev/mcp` para MCP e OAuth;
+- `https://navego.lspr.dev` para dashboard e viewer;
+- `https://mcp.navego.lspr.dev/mcp` para MCP e OAuth;
 - Traefik somente na frente das rotas públicas necessárias;
 - control, agent, Docker socket e rede dos Chromiums fora da exposição direta.
 

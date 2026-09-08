@@ -424,11 +424,11 @@ func TestOAuthScopesAreAdvertisedAndEnforced(t *testing.T) {
 		fake,
 		takeover.New(),
 		approval.NewStore(time.Minute),
-		"https://browser.lspr.dev",
+		"https://navego.lspr.dev",
 		nil,
 		WithAuthorization(Authorization{
 			Enabled:             true,
-			ResourceMetadataURL: "https://mcp.browser.lspr.dev/.well-known/oauth-protected-resource",
+			ResourceMetadataURL: "https://mcp.navego.lspr.dev/.well-known/oauth-protected-resource",
 		}),
 	)
 	client := connectTestClient(t, server.MCP)

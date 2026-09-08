@@ -83,9 +83,9 @@ func TestLoadOverridesValues(t *testing.T) {
 func TestLoadOAuthConfiguration(t *testing.T) {
 	values := map[string]string{
 		"MCP_OAUTH_ENABLED":          "true",
-		"MCP_PUBLIC_URL":             "https://mcp.browser.lspr.dev/mcp",
+		"MCP_PUBLIC_URL":             "https://mcp.navego.lspr.dev/mcp",
 		"MCP_OAUTH_ISSUER":           "https://tenant.example.com/",
-		"MCP_OAUTH_AUDIENCE":         "https://mcp.browser.lspr.dev/mcp",
+		"MCP_OAUTH_AUDIENCE":         "https://mcp.navego.lspr.dev/mcp",
 		"MCP_OAUTH_ALLOWED_SUBJECTS": "auth0|owner,google-oauth2|owner",
 	}
 	cfg, err := Load(func(name string) (string, bool) {
@@ -116,9 +116,9 @@ func TestLoadRejectsOAuthWithStaticAPIKey(t *testing.T) {
 	values := map[string]string{
 		"MCP_OAUTH_ENABLED":          "true",
 		"MCP_API_KEY":                "secret",
-		"MCP_PUBLIC_URL":             "https://mcp.browser.lspr.dev/mcp",
+		"MCP_PUBLIC_URL":             "https://mcp.navego.lspr.dev/mcp",
 		"MCP_OAUTH_ISSUER":           "https://tenant.example.com/",
-		"MCP_OAUTH_AUDIENCE":         "https://mcp.browser.lspr.dev/mcp",
+		"MCP_OAUTH_AUDIENCE":         "https://mcp.navego.lspr.dev/mcp",
 		"MCP_OAUTH_ALLOWED_SUBJECTS": "auth0|owner",
 	}
 	_, err := Load(func(name string) (string, bool) {

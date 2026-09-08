@@ -97,7 +97,7 @@ existentes diferentes sem revisão.
                  +-------------------+-------------------+
                  |                   |                   |
                  v                   v                   v
-       browser.lspr.dev    mcp.browser.lspr.dev   view.browser.lspr.dev
+       navego.lspr.dev    mcp.navego.lspr.dev   view.navego.lspr.dev
                  |                   |                   |
                  v                   v                   v
             Next.js web       Navego control       viewer proxy
@@ -417,7 +417,7 @@ shadcn correspondente.
 
 ### Viewer
 
-Usaremos `view.browser.lspr.dev` como host único. O control emitirá um ticket de
+Usaremos `view.navego.lspr.dev` como host único. O control emitirá um ticket de
 uso único com owner, browser, expiração curta e nonce. O viewer troca o ticket
 por um cookie `HttpOnly` e remove o token da URL antes de iniciar o proxy HTTP e
 WebSocket para a GUI do Chromium.
@@ -427,7 +427,7 @@ com proxy, cookies, WebSocket e `iframe`. Se ela exigir caminhos absolutos
 incompatíveis, alternativas em ordem de preferência:
 
 1. manter um host fixo e uma sessão de viewer ativa por usuário;
-2. usar subdomínios dinâmicos `b-<id>.browser.lspr.dev` com ForwardAuth;
+2. usar subdomínios dinâmicos `b-<id>.navego.lspr.dev` com ForwardAuth;
 3. substituir somente a camada de viewer, preservando Chromium e CDP.
 
 Esse spike ocorre antes de finalizar os cards, pois é o maior risco técnico da
@@ -438,7 +438,7 @@ interface.
 O endpoint continuará público em:
 
 ```text
-https://mcp.browser.lspr.dev/mcp
+https://mcp.navego.lspr.dev/mcp
 ```
 
 O control plane é OAuth resource server e authorization server. O login OAuth
@@ -653,9 +653,9 @@ projeto Compose.
 Domínios propostos:
 
 ```text
-https://browser.lspr.dev             dashboard
-https://mcp.browser.lspr.dev/mcp     MCP e OAuth discovery
-https://view.browser.lspr.dev        viewer autenticado
+https://navego.lspr.dev             dashboard
+https://mcp.navego.lspr.dev/mcp     MCP e OAuth discovery
+https://view.navego.lspr.dev        viewer autenticado
 ```
 
 O PocketBase admin não terá router público. O MCP não ficará atrás de

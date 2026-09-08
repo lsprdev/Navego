@@ -25,7 +25,7 @@ export default async function DashboardPage({
       initialViewerBrowserID={initialViewerBrowserID}
       mcpURL={
         process.env.NAVEGO_PUBLIC_MCP_URL?.trim() ||
-        "https://mcp.browser.lspr.dev/mcp"
+        "https://mcp.navego.lspr.dev/mcp"
       }
     />
   );
