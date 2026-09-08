@@ -29,6 +29,7 @@ const (
 )
 
 type oauthService struct {
+	access   *accessPolicy
 	app      core.App
 	resource string
 	issuer   string
@@ -214,13 +215,13 @@ func (s *oauthService) approveAuthorization(event *core.RequestEvent) error {
 	email := strings.TrimSpace(event.Request.PostFormValue("email"))
 	password := event.Request.PostFormValue("password")
 	user, err := s.app.FindAuthRecordByEmail("users", email)
-	if err != nil || !user.ValidatePassword(password) {
+	if err != nil || !user.ValidatePassword(password) || !s.access.allowsUser(user) {
 		return renderAuthorizationPage(event, authorizationPageData{
 			Request:        request,
 			ClientName:     client.GetString("client_name"),
 			Scopes:         scopes,
 			Email:          email,
-			Error:          "E-mail ou senha inválidos.",
+			Error:          "E-mail/senha inválidos ou conta não autorizada e verificada.",
 			FormAction:     s.issuer + "/oauth/authorize",
 			Issuer:         s.issuer,
 			RedirectOrigin: oauthRedirectOrigin(request.RedirectURI),
@@ -358,6 +359,10 @@ func (s *oauthService) exchangeRefreshToken(event *core.RequestEvent) error {
 }
 
 func (s *oauthService) issueTokens(event *core.RequestEvent, ownerID, clientID string, scopes []string, resource string) error {
+	user, err := s.app.FindRecordById("users", ownerID)
+	if err != nil || !s.access.allowsUser(user) {
+		return oauthJSONError(event, http.StatusBadRequest, "invalid_grant", "Conta não autorizada.")
+	}
 	accessToken, err := randomToken()
 	if err != nil {
 		return event.InternalServerError("Não foi possível emitir o access token.", err)
@@ -440,6 +445,10 @@ func (s *oauthService) verifyToken(token string) (*auth.TokenInfo, error) {
 		return nil, auth.ErrInvalidToken
 	}
 	ownerID := record.GetString("owner")
+	user, err := s.app.FindRecordById("users", ownerID)
+	if err != nil || !s.access.allowsUser(user) {
+		return nil, auth.ErrInvalidToken
+	}
 	return &auth.TokenInfo{
 		Scopes:     strings.Fields(record.GetString("scopes")),
 		Expiration: expires,

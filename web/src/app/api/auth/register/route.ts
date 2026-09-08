@@ -1,9 +1,4 @@
-import {
-  apiErrorResponse,
-  mapUser,
-  newPocketBase,
-  setSessionCookie,
-} from "@/lib/navego-server";
+import { apiErrorResponse, newPocketBase } from "@/lib/navego-server";
 
 export async function POST(request: Request) {
   try {
@@ -38,11 +33,14 @@ export async function POST(request: Request) {
       password,
       passwordConfirm: password,
     });
-    const auth = await pocketBase
-      .collection("users")
-      .authWithPassword(email, password);
-    await setSessionCookie(auth.token);
-    return Response.json({ user: mapUser(auth.record) }, { status: 201 });
+    return Response.json(
+      {
+        verificationRequired: true,
+        message:
+          "Conta criada. Peça ao administrador para verificar sua identidade e liberar a conta antes de entrar.",
+      },
+      { status: 201 },
+    );
   } catch (error) {
     return apiErrorResponse(error);
   }

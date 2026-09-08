@@ -295,7 +295,7 @@ func (s *multiBrowserMCP) ownedBrowsers(ownerID string) ([]*core.Record, string,
 		pb_migrations.BrowsersCollection,
 		"owner = {:owner} && state != 'deleting'",
 		"created",
-		maxBrowsersPerUser,
+		0,
 		0,
 		dbx.Params{"owner": ownerID},
 	)

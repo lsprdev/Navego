@@ -27,6 +27,7 @@ func TestOAuthAndMultiBrowserMCPEndToEnd(t *testing.T) {
 		password    = "smoke-password-123"
 	)
 	app := New(Config{
+		AllowedEmails:          email + ",other-oauth-smoke@example.com",
 		DataDir:                t.TempDir(),
 		PublicMCPURL:           resource,
 		PublicViewerURL:        "http://127.0.0.1:8090",
@@ -45,6 +46,7 @@ func TestOAuthAndMultiBrowserMCPEndToEnd(t *testing.T) {
 	user := core.NewRecord(users)
 	user.Set("name", "OAuth Smoke")
 	user.Set("email", email)
+	user.SetVerified(true)
 	user.Set("password", password)
 	user.Set("passwordConfirm", password)
 	if err := app.Save(user); err != nil {
@@ -72,6 +74,7 @@ func TestOAuthAndMultiBrowserMCPEndToEnd(t *testing.T) {
 	foreignUser := core.NewRecord(users)
 	foreignUser.Set("name", "Outro usuário")
 	foreignUser.Set("email", "other-oauth-smoke@example.com")
+	foreignUser.SetVerified(true)
 	foreignUser.Set("password", password)
 	foreignUser.Set("passwordConfirm", password)
 	if err := app.Save(foreignUser); err != nil {
@@ -215,6 +218,30 @@ func TestOAuthAndMultiBrowserMCPEndToEnd(t *testing.T) {
 	decodeBody(t, tokenResponse, &tokens)
 	if tokens.AccessToken == "" || tokens.RefreshToken == "" || !strings.Contains(tokens.Scope, "browser:write") {
 		t.Fatalf("unexpected token response: %#v", tokens)
+	}
+	checker, err := newOAuthService(app, resource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker.access, _ = parseAccessPolicy(email)
+	if _, err := checker.verifyToken(tokens.AccessToken); err != nil {
+		t.Fatal(err)
+	}
+	checker.access, _ = parseAccessPolicy("")
+	if _, err := checker.verifyToken(tokens.AccessToken); err == nil {
+		t.Fatal("an issued OAuth token bypassed removal from the email allowlist")
+	}
+	checker.access, _ = parseAccessPolicy(email)
+	user.SetVerified(false)
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checker.verifyToken(tokens.AccessToken); err == nil {
+		t.Fatal("OAuth accepted an unverified owner")
+	}
+	user.SetVerified(true)
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

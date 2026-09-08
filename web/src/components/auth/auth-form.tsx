@@ -35,12 +35,14 @@ export function AuthForm({ mode, returnTo = "/dashboard" }: AuthFormProps) {
   const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const registering = mode === "register";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError("");
+    setMessage("");
     const data = new FormData(event.currentTarget);
     try {
       const response = await fetch(`/api/auth/${mode}`, {
@@ -52,9 +54,20 @@ export function AuthForm({ mode, returnTo = "/dashboard" }: AuthFormProps) {
           password: data.get("password"),
         }),
       });
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as {
+        error?: string;
+        verificationRequired?: boolean;
+        message?: string;
+      };
       if (!response.ok) {
         throw new Error(body.error || "Não foi possível entrar no Navego.");
+      }
+      if (body.verificationRequired) {
+        setMessage(
+          body.message ||
+            "Conta criada. Aguarde a verificação do administrador antes de entrar.",
+        );
+        return;
       }
       router.replace(returnTo);
       router.refresh();
@@ -194,9 +207,19 @@ export function AuthForm({ mode, returnTo = "/dashboard" }: AuthFormProps) {
                   <FieldError>{error}</FieldError>
                 </Field>
               ) : null}
+              {message ? (
+                <Field>
+                  <FieldDescription role="status">{message}</FieldDescription>
+                </Field>
+              ) : null}
             </FieldGroup>
 
-            <Button type="submit" size="xl" disabled={pending} className="w-full">
+            <Button
+              type="submit"
+              size="xl"
+              disabled={pending || Boolean(message)}
+              className="w-full"
+            >
               {pending ? (
                 <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
               ) : (

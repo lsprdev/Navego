@@ -19,6 +19,9 @@ services:
     command: ["serve", "--http=0.0.0.0:8090"]
     environment:
       NAVEGO_DATA_DIR: /data
+      NAVEGO_ALLOWED_EMAILS: ${NAVEGO_ALLOWED_EMAILS:-}
+      NAVEGO_MAX_BROWSERS_PER_USER: ${NAVEGO_MAX_BROWSERS_PER_USER:-2}
+      NAVEGO_MAX_BROWSERS_TOTAL: ${NAVEGO_MAX_BROWSERS_TOTAL:-5}
       NAVEGO_AGENT_TOKEN: ${NAVEGO_AGENT_TOKEN:-local-agent-token-change-me}
       NAVEGO_WORKER_API_KEY: ${NAVEGO_WORKER_API_KEY:-local-worker-token-change-me}
       NAVEGO_VAULT_KEY: ${NAVEGO_VAULT_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}

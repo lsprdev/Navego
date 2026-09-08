@@ -18,9 +18,10 @@ import (
 	"github.com/lsprdev/Navego/pb_migrations"
 )
 
-const maxBrowsersPerUser = 5
-
 type Config struct {
+	AllowedEmails          string
+	MaxBrowsersPerUser     int
+	MaxBrowsersTotal       int
 	DataDir                string
 	AgentToken             string
 	WorkerAPIKey           string
@@ -33,6 +34,13 @@ type Config struct {
 }
 
 func New(cfg Config) *pocketbase.PocketBase {
+	if cfg.MaxBrowsersPerUser == 0 {
+		cfg.MaxBrowsersPerUser = 2
+	}
+	if cfg.MaxBrowsersTotal == 0 {
+		cfg.MaxBrowsersTotal = 5
+	}
+	access, accessErr := parseAccessPolicy(cfg.AllowedEmails)
 	app := pocketbase.NewWithConfig(pocketbase.Config{
 		DefaultDataDir:  cfg.DataDir,
 		HideStartBanner: true,
@@ -40,6 +48,12 @@ func New(cfg Config) *pocketbase.PocketBase {
 
 	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{})
 	app.OnBootstrap().BindFunc(func(event *core.BootstrapEvent) error {
+		if accessErr != nil {
+			return accessErr
+		}
+		if cfg.MaxBrowsersPerUser < 1 || cfg.MaxBrowsersTotal < 1 {
+			return fmt.Errorf("os limites de navegadores devem ser positivos")
+		}
 		if err := event.Next(); err != nil {
 			return err
 		}
@@ -49,6 +63,7 @@ func New(cfg Config) *pocketbase.PocketBase {
 		cfg.InternalHTTP = &http.Client{Timeout: 20 * time.Second}
 	}
 	viewerAccess := newViewerStore()
+	bindAccessPolicy(app, access)
 	humanAccess := newHumanAccessStore()
 	app.OnServe().BindFunc(func(event *core.ServeEvent) error {
 		// Navego never exposes PocketBase's browser installer. Administrators are
@@ -63,8 +78,13 @@ func New(cfg Config) *pocketbase.PocketBase {
 }
 
 func registerRoutes(event *core.ServeEvent, cfg Config, viewerAccess *viewerStore, humanAccess *humanAccessStore) {
+	access, _ := parseAccessPolicy(cfg.AllowedEmails)
+	event.Router.Bind(accessMiddleware(access))
 	vault, vaultErr := newCredentialVault(cfg.VaultKey)
 	oauthService, oauthErr := newOAuthService(event.App, cfg.PublicMCPURL)
+	if oauthErr == nil {
+		oauthService.access = access
+	}
 	event.Router.GET("/api/navego/healthz", func(request *core.RequestEvent) error {
 		return request.JSON(http.StatusOK, map[string]any{
 			"status":  "ok",
@@ -81,7 +101,7 @@ func registerRoutes(event *core.ServeEvent, cfg Config, viewerAccess *viewerStor
 	protected.POST("/credentials", createCredential(vault, vaultErr))
 	protected.PATCH("/credentials/{id}", updateCredential(vault, vaultErr))
 	protected.DELETE("/credentials/{id}", deleteCredential(vault, vaultErr))
-	protected.POST("/browsers", createBrowser)
+	protected.POST("/browsers", createBrowser(cfg))
 	protected.PATCH("/browsers/{id}", renameBrowser)
 	protected.POST("/browsers/{id}/default", setDefaultBrowser)
 	protected.POST("/browsers/{id}/power", powerBrowser)
@@ -228,7 +248,7 @@ func listBrowsers(event *core.RequestEvent) error {
 		pb_migrations.BrowsersCollection,
 		"owner = {:owner} && state != 'deleting'",
 		"-created",
-		maxBrowsersPerUser,
+		0,
 		0,
 		dbx.Params{"owner": event.Auth.Id},
 	)
@@ -243,55 +263,26 @@ func listBrowsers(event *core.RequestEvent) error {
 	return event.JSON(http.StatusOK, result)
 }
 
-func createBrowser(event *core.RequestEvent) error {
-	var input struct {
-		Name string `json:"name"`
-	}
-	if err := event.BindBody(&input); err != nil {
-		return event.BadRequestError("Corpo da requisição inválido.", err)
-	}
-	name, err := normalizeBrowserName(input.Name)
-	if err != nil {
-		return event.BadRequestError(err.Error(), nil)
-	}
-
-	existing, err := event.App.FindRecordsByFilter(
-		pb_migrations.BrowsersCollection,
-		"owner = {:owner} && state != 'deleting'",
-		"",
-		maxBrowsersPerUser+1,
-		0,
-		dbx.Params{"owner": event.Auth.Id},
-	)
-	if err != nil {
-		return event.InternalServerError("Não foi possível validar o limite de navegadores.", err)
-	}
-	if len(existing) >= maxBrowsersPerUser {
-		return event.BadRequestError(fmt.Sprintf("O limite atual é de %d navegadores por conta.", maxBrowsersPerUser), nil)
-	}
-
-	collection, err := event.App.FindCollectionByNameOrId(pb_migrations.BrowsersCollection)
-	if err != nil {
-		return event.InternalServerError("Coleção de navegadores indisponível.", err)
-	}
-	record := core.NewRecord(collection)
-	record.Set("owner", event.Auth.Id)
-	record.Set("name", name)
-	record.Set("state", "queued")
-	record.Set("last_title", "Aguardando o Navego Agent")
-	if err := event.App.Save(record); err != nil {
-		return event.BadRequestError("Não foi possível criar o navegador.", err)
-	}
-	isDefault := event.Auth.GetString("default_browser") == ""
-	if isDefault {
-		event.Auth.Set("default_browser", record.Id)
-		if err := event.App.Save(event.Auth); err != nil {
-			_ = event.App.Delete(record)
-			return event.InternalServerError("Não foi possível definir o primeiro navegador como padrão.", err)
+func createBrowser(cfg Config) func(*core.RequestEvent) error {
+	return func(event *core.RequestEvent) error {
+		var input struct {
+			Name string `json:"name"`
 		}
+		if err := event.BindBody(&input); err != nil {
+			return event.BadRequestError("Corpo da requisição inválido.", err)
+		}
+		name, err := normalizeBrowserName(input.Name)
+		if err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+
+		record, isDefault, err := reserveBrowser(event.App, event.Auth.Id, name, cfg)
+		if err != nil {
+			return err
+		}
+		writeAudit(event.App, event.Auth.Id, record.Id, "browser.create", "success", map[string]any{"name": name})
+		return event.JSON(http.StatusAccepted, mapBrowser(record, isDefault))
 	}
-	writeAudit(event.App, event.Auth.Id, record.Id, "browser.create", "success", map[string]any{"name": name})
-	return event.JSON(http.StatusAccepted, mapBrowser(record, isDefault))
 }
 
 func renameBrowser(event *core.RequestEvent) error {

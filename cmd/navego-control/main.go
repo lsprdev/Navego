@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/lsprdev/Navego/internal/control"
@@ -15,6 +16,9 @@ func main() {
 	}
 
 	app := control.New(control.Config{
+		AllowedEmails:          os.Getenv("NAVEGO_ALLOWED_EMAILS"),
+		MaxBrowsersPerUser:     positiveLimit("NAVEGO_MAX_BROWSERS_PER_USER", 2),
+		MaxBrowsersTotal:       positiveLimit("NAVEGO_MAX_BROWSERS_TOTAL", 5),
 		DataDir:                dataDir,
 		AgentToken:             os.Getenv("NAVEGO_AGENT_TOKEN"),
 		WorkerAPIKey:           os.Getenv("NAVEGO_WORKER_API_KEY"),
@@ -27,6 +31,18 @@ func main() {
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func positiveLimit(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		log.Fatalf("%s deve ser um inteiro positivo", name)
+	}
+	return value
 }
 
 func envOrDefault(name, fallback string) string {

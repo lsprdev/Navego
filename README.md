@@ -73,7 +73,7 @@ Já implementado:
 Ainda em desenvolvimento:
 
 - entrega just-in-time do vault ao worker com approval de uso único;
-- convite/limites configuráveis e hardening final do Dokploy.
+- gestão de convites pela UI e hardening final do Dokploy.
 
 O atalho “Conectar ao ChatGPT” mostra a URL do endpoint `/mcp`. A conexão OAuth
 dá acesso apenas aos navegadores do usuário autenticado. O ChatGPT pode chamar
@@ -145,6 +145,43 @@ NAVEGO_TEST_CHROME=/caminho/para/chromium go test -tags=integration ./internal/b
 ```
 
 ## Deploy
+
+### Acesso restrito e capacidade
+
+Configure no ambiente do control plane (no Dokploy, em **Environment**):
+
+```dotenv
+NAVEGO_ALLOWED_EMAILS=voce@example.com,amigo@example.com
+NAVEGO_MAX_BROWSERS_PER_USER=2
+NAVEGO_MAX_BROWSERS_TOTAL=5
+```
+
+- A lista aceita endereços completos, separados por vírgula, sem curingas ou
+  domínios inteiros. A comparação ignora maiúsculas/minúsculas. Lista vazia
+  bloqueia usuários; o compose de produção exige preenchimento antes de subir.
+- Além de estar na lista, a conta precisa ter `verified=true` no PocketBase.
+  O cadastro cria uma conta pendente, sem sessão automática. Neste fluxo de
+  acesso privado, o administrador confere a identidade e verifica a conta na
+  coleção `users`, usando o acesso administrativo interno/SSH já protegido.
+  Não libere contas apenas porque alguém digitou um e-mail conhecido e não
+  exponha o painel administrativo publicamente. Envio automático de verificação
+  por e-mail não foi configurado por esta alteração.
+- **Antes de atualizar**, inclua também os e-mails das contas existentes e
+  verifique-as; caso contrário, elas perderão acesso ao dashboard e ao MCP.
+  Alterações na lista exigem redeploy do control plane. Tokens antigos do
+  dashboard e do MCP também passam pela política; refresh OAuth não libera
+  contas removidas. Superusuários mantêm o acesso administrativo.
+- Os limites contam todos os perfis: ligados, desligados, em criação, com erro
+  ou aguardando exclusão. A vaga só volta após a exclusão ser confirmada pelo
+  agente. A contagem e a criação ocorrem na mesma transação, impedindo que
+  requisições simultâneas ultrapassem a cota. A API nativa de criação de
+  registros de navegadores continua fechada para usuários.
+- Reduzir o limite não apaga nem desliga perfis existentes: novas criações
+  ficam bloqueadas até haver capacidade. Ajuste o total à memória disponível:
+  cada Chromium pode consumir até 2 GiB, além do worker e dos demais serviços.
+  O limite de quantidade não substitui monitoração de RAM, CPU e disco.
+
+Rebuild/redeploy do `navego-control` e do `navego-web` aplica estas alterações.
 
 [`compose.dokploy.yaml`](compose.dokploy.yaml) prepara:
 
