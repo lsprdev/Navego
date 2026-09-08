@@ -49,7 +49,6 @@ site visitado em ambiente confiável. O host deve usar disco criptografado, aces
 administrativo restrito e backups protegidos.
 
 ## Configuração local
-
 Crie o diretório ignorado pelo Git e copie o manifesto de exemplo:
 
 ```bash
