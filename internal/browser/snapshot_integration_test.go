@@ -97,4 +97,49 @@ func TestLegacyMenuSnapshotAndInteractions(t *testing.T) {
 	if !strings.Contains(snapshot.Text, "Consulta aberta") {
 		t.Fatal("click did not activate the legacy submenu's mouseup handler")
 	}
+
+	// A large portal may fill the ordinary snapshot before reaching the menu.
+	if err := chromedp.Run(tab, chromedp.Evaluate(`(() => {
+		const container = document.createElement('div');
+		for (let i = 0; i < 160; i++) {
+			const button = document.createElement('button');
+			button.textContent = 'Controle extra ' + i;
+			container.append(button);
+		}
+		document.body.prepend(container);
+	})()`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = manager.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range snapshot.Elements {
+		if element.Name == "Ensino" {
+			t.Fatal("fixture did not place menu beyond snapshot limit")
+		}
+	}
+	found, err = manager.Find(ctx, "Ensino", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Matches) == 0 || found.Matches[0].Ref == "" {
+		t.Fatal("find lost the menu ref beyond the ordinary snapshot limit")
+	}
+	if len(manager.refs) > 150 {
+		t.Fatal("find exceeded the snapshot reference budget")
+	}
+	if _, err := manager.Hover(ctx, found.Matches[0].Ref); err != nil {
+		t.Fatal(err)
+	}
+	found, err = manager.Find(ctx, "Consultar Minhas Notas", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Matches) == 0 || found.Matches[0].Ref == "" {
+		t.Fatal("find lost submenu ref")
+	}
+	if _, err := manager.Click(ctx, found.Matches[0].Ref); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -46,6 +46,22 @@ func TestRuntimeNamesAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestWorkerStatusRejectsDisconnectedOrInvalidHealth(t *testing.T) {
+	for _, payload := range []string{
+		`{}`, `{"status":"unhealthy","browser":{"connected":true}}`,
+		`{"status":"ok","browser":{"connected":false}}`, `not json`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			engine := &DockerEngine{httpClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(payload)), Header: make(http.Header), Request: request}, nil
+			})}}
+			if _, _, err := engine.workerStatus(context.Background(), "http://worker.test:8001"); err == nil {
+				t.Fatal("accepted invalid worker health")
+			}
+		})
+	}
+}
+
 func TestRuntimeNamesRejectUnsafeID(t *testing.T) {
 	for _, value := range []string{"", "../browser", "browser.name", "browser/name"} {
 		if _, err := runtimeNames(value); err == nil {

@@ -136,7 +136,9 @@ O plano e as decisões de arquitetura estão em
 
 O teste de menus legados usa Chrome/Chromium headless com perfil temporário
 isolado e verifica snapshot, busca, hover e clique, incluindo menus baseados em
-`td` com eventos de mouse como os do SIGAA:
+`td` com eventos de mouse como os do SIGAA. Também verifica a busca de menus
+além dos primeiros 150 controles: `browser_find` prioriza correspondências
+antes de aplicar o limite de elementos e retorna referências acionáveis.
 
 ```sh
 NAVEGO_TEST_CHROME=/caminho/para/chromium go test -tags=integration ./internal/browser -run TestLegacyMenuSnapshotAndInteractions -count=1
@@ -154,3 +156,28 @@ NAVEGO_TEST_CHROME=/caminho/para/chromium go test -tags=integration ./internal/b
 Cloudflare Access continua recomendado para o dashboard. O viewer exige também
 o ticket interno do Navego, então conhecer a URL base não concede acesso a um
 Chromium.
+
+O agente recupera automaticamente workers que perderam a conexão com o Chromium:
+
+- Após um reinício externo do container do Chromium (inclusive reboot do host),
+  compara os horários de início e reinicia o worker que ainda é anterior a ele.
+- Após um rebuild da imagem configurada em `NAVEGO_WORKER_IMAGE`, compara o ID
+  imutável da imagem com o do worker existente e substitui somente o worker
+  desatualizado. A imagem nova precisa estar disponível localmente; se não
+  estiver, o agente informa o erro sem remover o worker antigo.
+- Se `/healthz` continuar falhando por pelo menos dois minutos e três sondagens,
+  reinicia somente o worker, com intervalo mínimo de dois minutos entre tentativas.
+  Uma resposta saudável limpa a contagem; uma falha isolada não provoca reinício.
+- Não apaga o perfil/volume do Chromium e não repete comandos MCP interrompidos.
+  Uma ação interrompida deve ter seu resultado conferido antes de ser repetida.
+
+Essa recuperação exige rebuild e redeploy do serviço `navego-agent`; também
+monitora os workers já existentes, sem precisar recriar os navegadores. Nos logs
+do agente, a recuperação por falhas persistentes aparece como
+`restarting unresponsive browser worker`.
+
+Para atualizar o código MCP, faça rebuild da imagem `navego-runtime:production`
+e redeploy do agente. Apenas recarregar o plugin ou reiniciar o container do
+worker não troca o binário antigo. A substituição automática aparece nos logs
+como `replacing outdated browser worker`; faça deploy sem ações em andamento,
+pois chamadas que estiverem usando o worker substituído podem ser interrompidas.

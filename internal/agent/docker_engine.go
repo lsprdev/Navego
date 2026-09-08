@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -39,6 +41,8 @@ type DockerEngine struct {
 	client     *dockerclient.Client
 	httpClient *http.Client
 	cfg        DockerConfig
+	recoveryMu sync.Mutex
+	recovery   map[string]workerRecovery
 }
 
 func NewDockerEngine(cfg DockerConfig) (*DockerEngine, error) {
@@ -105,7 +109,11 @@ func (e *DockerEngine) EnsureRunning(ctx context.Context, browser Browser) (Runt
 		WorkerEndpoint:   "http://" + names.browser + ":8001",
 		ViewerEndpoint:   "http://" + names.browser + ":3000",
 	}
-	if title, pageURL, statusErr := e.workerStatus(ctx, runtime.WorkerEndpoint); statusErr == nil {
+	title, pageURL, statusErr := e.workerStatus(ctx, runtime.WorkerEndpoint)
+	if err := e.recoverWorker(ctx, browser, names, statusErr, time.Now()); err != nil {
+		return Runtime{}, err
+	}
+	if statusErr == nil {
 		runtime.Title = title
 		runtime.URL = pageURL
 	}
@@ -126,18 +134,24 @@ func (e *DockerEngine) workerStatus(ctx context.Context, endpoint string) (strin
 		return "", "", fmt.Errorf("worker health returned %s", response.Status)
 	}
 	var envelope struct {
+		Status  string `json:"status"`
 		Browser struct {
-			Title string `json:"title"`
-			URL   string `json:"url"`
+			Connected bool   `json:"connected"`
+			Title     string `json:"title"`
+			URL       string `json:"url"`
 		} `json:"browser"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
 		return "", "", fmt.Errorf("decode worker health: %w", err)
 	}
+	if envelope.Status != "ok" || !envelope.Browser.Connected {
+		return "", "", fmt.Errorf("worker health did not confirm a connected browser")
+	}
 	return strings.TrimSpace(envelope.Browser.Title), strings.TrimSpace(envelope.Browser.URL), nil
 }
 
 func (e *DockerEngine) EnsureStopped(ctx context.Context, browser Browser) error {
+	e.forgetWorkerRecovery(browser.ID)
 	names, err := runtimeNames(browser.ID)
 	if err != nil {
 		return err
@@ -149,6 +163,7 @@ func (e *DockerEngine) EnsureStopped(ctx context.Context, browser Browser) error
 }
 
 func (e *DockerEngine) EnsureDeleted(ctx context.Context, browser Browser) error {
+	e.forgetWorkerRecovery(browser.ID)
 	names, err := runtimeNames(browser.ID)
 	if err != nil {
 		return err
@@ -289,13 +304,35 @@ func browserContainerNeedsRestart(state *container.State) bool {
 func (e *DockerEngine) ensureWorkerContainer(ctx context.Context, browser Browser, names generatedNames, browserContainerID string, restartWithBrowser bool) (string, error) {
 	wantedNetworkMode := container.NetworkMode("container:" + browserContainerID)
 	inspect, err := e.inspectOwnedContainer(ctx, names.worker, browser.ID, "worker")
-	if err == nil && inspect.HostConfig != nil && inspect.HostConfig.NetworkMode != wantedNetworkMode {
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return "", err
+	}
+	// Resolve the mutable tag before stopping anything. Restarting a container
+	// never adopts a rebuilt image, even when its configured tag is unchanged.
+	image, imageErr := e.client.ImageInspect(ctx, e.cfg.WorkerImage)
+	if imageErr != nil {
+		return "", fmt.Errorf("inspect desired worker image: %w", imageErr)
+	}
+	if image.ID == "" {
+		return "", fmt.Errorf("desired worker image has no immutable ID")
+	}
+	if err == nil && (inspect.Image != image.ID || inspect.HostConfig == nil || inspect.HostConfig.NetworkMode != wantedNetworkMode) {
+		slog.Info("replacing outdated browser worker", "browser_id", browser.ID, "old_image", inspect.Image, "new_image", image.ID)
 		if err := e.removeOwnedContainer(ctx, names.worker, browser.ID, "worker"); err != nil {
 			return "", fmt.Errorf("replace stale worker container: %w", err)
 		}
+		e.forgetWorkerRecovery(browser.ID)
 		err = cerrdefs.ErrNotFound
 	}
 	if err == nil {
+		// Docker can restart both containers without the agent observing the
+		// browser's stopped state. A worker started earlier may still hold the
+		// old CDP connection/network namespace and must reattach once.
+		browserInspect, inspectErr := e.inspectOwnedContainer(ctx, names.browser, browser.ID, "browser")
+		if inspectErr != nil {
+			return "", inspectErr
+		}
+		restartWithBrowser = restartWithBrowser || workerPredatesBrowser(inspect.State, browserInspect.State)
 		if inspect.State == nil || !inspect.State.Running {
 			if _, err := e.client.ContainerStart(ctx, inspect.ID, dockerclient.ContainerStartOptions{}); err != nil {
 				return "", fmt.Errorf("start worker container: %w", err)
@@ -332,7 +369,7 @@ func (e *DockerEngine) ensureWorkerContainer(ctx context.Context, browser Browse
 	created, err := e.client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
 		Name: names.worker,
 		Config: &container.Config{
-			Image:      e.cfg.WorkerImage,
+			Image:      image.ID,
 			Entrypoint: []string{"/navego-worker"},
 			Env:        environment,
 			Labels:     runtimeLabels(browser, "worker"),

@@ -131,6 +131,10 @@ func (m *Manager) Snapshot(ctx context.Context) (Snapshot, error) {
 }
 
 func (m *Manager) Find(ctx context.Context, query string, limit int) (FindResult, error) {
+	query, limit, err := NormalizeFindRequest(query, limit)
+	if err != nil {
+		return FindResult{}, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.ensureConnectedLocked(); err != nil {
@@ -138,7 +142,7 @@ func (m *Manager) Find(ctx context.Context, query string, limit int) (FindResult
 	}
 	op, cancel := m.operationContext(ctx, m.actionTimeout)
 	defer cancel()
-	snapshot, err := m.snapshotLocked(op)
+	snapshot, err := m.snapshotForQueryLocked(op, query)
 	if err != nil {
 		return FindResult{}, err
 	}
@@ -749,12 +753,17 @@ func (m *Manager) clickLocked(ctx context.Context, info refInfo) (Snapshot, erro
 }
 
 func (m *Manager) snapshotLocked(ctx context.Context) (Snapshot, error) {
+	return m.snapshotForQueryLocked(ctx, "")
+}
+
+func (m *Manager) snapshotForQueryLocked(ctx context.Context, query string) (Snapshot, error) {
 	m.generation++
 	prefix := fmt.Sprintf("g%de", m.generation)
 	script := strings.NewReplacer(
 		"__PREFIX__", strconv.Quote(prefix),
 		"__MAX_ELEMENTS__", strconv.Itoa(m.maxElements),
 		"__MAX_CHARS__", strconv.Itoa(m.maxChars),
+		"__FIND_QUERY__", strconv.Quote(query),
 	).Replace(snapshotScript)
 	var snapshot Snapshot
 	if err := chromedp.Run(ctx, chromedp.Evaluate(script, &snapshot)); err != nil {
@@ -1098,6 +1107,7 @@ const snapshotScript = `(() => {
 	const prefix = __PREFIX__;
 	const maxElements = __MAX_ELEMENTS__;
 	const maxChars = __MAX_CHARS__;
+	const findQuery = __FIND_QUERY__.toLowerCase();
 	for (const el of document.querySelectorAll("[" + refAttribute + "]")) {
 		el.removeAttribute(refAttribute);
 	}
@@ -1144,9 +1154,22 @@ const snapshotScript = `(() => {
 			el.getAttribute("title") || el.getAttribute("alt") || el.innerText || el.getAttribute("name") || el.value
 		).slice(0, 180);
 	};
-	const candidates = document.querySelectorAll(
+	let candidates = Array.from(document.querySelectorAll(
 		"a[href],button,input,textarea,select,[role],[contenteditable='true'],[tabindex]:not([tabindex='-1'])," + mouseControlSelector
-	);
+	));
+	// Search the full candidate set before applying the snapshot budget. A
+	// portal's navigation menu may come after hundreds of links in DOM order.
+	// Keep exact labels first, without increasing output size or accepting
+	// arbitrary selectors from the model.
+	if (findQuery) {
+		candidates = candidates.map(el => {
+			const name = nameFor(el).toLowerCase();
+			const secret = el.matches('input[type="password" i]');
+			const value = secret ? "" : normalize(el.isContentEditable ? el.innerText : el.value).toLowerCase();
+			const label = roleFor(el).toLowerCase() + " " + name + " " + value;
+			return { el, rank: name === findQuery ? 0 : label.includes(findQuery) ? 1 : 2 };
+		}).sort((a, b) => a.rank - b.rank).map(item => item.el);
+	}
 	const elements = [];
 	for (const el of candidates) {
 		if (elements.length >= maxElements || !visible(el) || el.disabled || el.getAttribute("aria-hidden") === "true") continue;

@@ -16,6 +16,7 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	controlURL := envOrDefault("NAVEGO_CONTROL_URL", "http://navego-control:8090")
 	agentID := envOrDefault("NAVEGO_AGENT_ID", "primary")
 	agentToken := strings.TrimSpace(os.Getenv("NAVEGO_AGENT_TOKEN"))
