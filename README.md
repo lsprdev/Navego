@@ -147,6 +147,23 @@ retroativa. Faça rebuild/redeploy de **control** e **web** para habilitar o rec
 Não é necessário atualizar o conector MCP ou recriar os Chromiums. O recurso não
 altera timeouts nem repete ações automaticamente.
 
+### Login salvo e bloqueios de requisição
+
+O login salvo retorna `submitted_unverified` quando o formulário foi enviado:
+isso **não comprova autenticação**. O agente deve conferir a página resultante
+(portal autenticado, formulário ainda visível ou MFA) sem reenviar credenciais
+automaticamente. Páginas de erro do Chromium retornam falha em vez de sucesso.
+
+A validação de URL/DNS tem limite de 10 segundos, compartilha consultas
+simultâneas ao mesmo domínio e mantém o cache de aprovação curto (5 segundos
+após resolver). Falhas DNS não são cacheadas como sucesso e continuam bloqueando
+a requisição; IPs privados, locais e reservados permanecem proibidos.
+Nos logs do worker, `browser request blocked` informa `reason` (`dns_timeout`,
+`dns_error`, `dns_empty`, `non_public_ip` ou `url_rejected`), host, aba, tipo de
+recurso e duração, sem URL completa, formulário ou credenciais. Correlacione o
+horário com o diagnóstico da atividade; `ERR_BLOCKED_BY_CLIENT` sozinho não
+identifica o motivo. Estas mudanças exigem rebuild/redeploy de control e worker.
+
 ### Testes
 
 ```sh

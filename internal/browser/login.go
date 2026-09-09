@@ -199,5 +199,12 @@ func (m *Manager) CommitSavedLogin(ctx context.Context, target SavedLoginTarget,
 	if err := chromedp.Run(op, chromedp.Click(submitInfo.selector, chromedp.ByQuery), chromedp.Sleep(750*time.Millisecond)); err != nil {
 		return Snapshot{}, fmt.Errorf("submit saved login: %w", err)
 	}
-	return m.snapshotLocked(op)
+	snapshot, err := m.snapshotLocked(op)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := SavedLoginPageError(snapshot); err != nil {
+		return Snapshot{}, err
+	}
+	return snapshot, nil
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lsprdev/Navego/internal/browser"
 	"github.com/lsprdev/Navego/internal/credentials"
 	"github.com/lsprdev/Navego/internal/httpserver"
 	"github.com/lsprdev/Navego/internal/oauthresource"
@@ -48,6 +49,7 @@ func (s *multiBrowserMCP) addSavedLoginTool() {
 		Title: "Sign in with a saved Navego access",
 		Description: "Use this first whenever the current Chromium shows a username/password login form. " +
 			"Navego automatically selects the connected user's encrypted access by the page's exact HTTPS origin, submits it without exposing secrets, and returns the resulting page. " +
+			"A submitted_unverified result means the form was submitted, not that authentication succeeded. Inspect the returned page and verify the authenticated state; do not resubmit credentials automatically. " +
 			"If no matching access exists, then request human login.",
 		InputSchema: map[string]any{
 			"type": "object", "additionalProperties": false,
@@ -129,11 +131,15 @@ func (s *multiBrowserMCP) executeSavedLogin(ctx context.Context, ownerID string,
 	}
 	var committed httpserver.InternalSavedLoginCommitResponse
 	if err := s.postWorkerSavedLogin(ctx, endpoint+"/internal/saved-login/commit", commitInput, &committed); err != nil {
-		return toolError("O formulário mudou ou recusou o preenchimento protegido: " + err.Error()), browserID
+		return toolError("Não foi possível concluir ou verificar o envio do login salvo: " + err.Error() + ". Não reenvie as credenciais automaticamente; verifique a página atual."), browserID
+	}
+	// Also guard deployments whose worker has not been rebuilt yet.
+	if err := browser.SavedLoginPageError(committed.Snapshot); err != nil {
+		return toolError(err.Error()), browserID
 	}
 
 	message := fmt.Sprintf(
-		"Acesso salvo %q usado com segurança no Chromium %s para %s. A credencial não foi incluída na chamada do ChatGPT nem no resultado. Página atual: %s (%s).",
+		"Formulário enviado com o acesso salvo %q no Chromium %s para %s. Autenticação ainda não confirmada: verifique a página resultante antes de afirmar que o login funcionou. Não reenvie as credenciais automaticamente. A credencial não foi incluída na chamada do ChatGPT nem no resultado. Página atual: %s (%s).",
 		material.Descriptor.Label,
 		record.GetString("name"),
 		material.Descriptor.Origin,
@@ -141,7 +147,7 @@ func (s *multiBrowserMCP) executeSavedLogin(ctx context.Context, ownerID string,
 		committed.Snapshot.URL,
 	)
 	return jsonToolResult(message, map[string]any{
-		"status":   "signed_in",
+		"status":   "submitted_unverified",
 		"browser":  map[string]any{"id": browserID, "name": record.GetString("name")},
 		"account":  map[string]any{"label": material.Descriptor.Label, "origin": material.Descriptor.Origin},
 		"snapshot": committed.Snapshot,

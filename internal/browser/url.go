@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -33,6 +34,31 @@ type cachedHost struct {
 	expiresAt time.Time
 }
 
+type pendingHost struct {
+	done chan struct{}
+	err  error
+}
+
+// PolicyError carries a safe diagnostic code; callers should not log raw URLs.
+type PolicyError struct {
+	Code string
+	err  error
+}
+
+func (e *PolicyError) Error() string { return e.err.Error() }
+func (e *PolicyError) Unwrap() error { return e.err }
+
+func dnsPolicyError(host string, err error) error {
+	code := "dns_error"
+	var dnsErr *net.DNSError
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &dnsErr) && dnsErr.Timeout()) {
+		code = "dns_timeout"
+	} else if errors.Is(err, context.Canceled) {
+		code = "canceled"
+	}
+	return &PolicyError{Code: code, err: fmt.Errorf("resolve %s: %w", host, err)}
+}
+
 // PublicURLPolicy validates both the URL syntax and the current DNS answers.
 // A short allow cache avoids resolving every asset while limiting the useful
 // lifetime of a DNS rebinding answer.
@@ -40,8 +66,9 @@ type PublicURLPolicy struct {
 	resolver ipResolver
 	cacheTTL time.Duration
 
-	mu    sync.Mutex
-	cache map[string]cachedHost
+	mu      sync.Mutex
+	cache   map[string]cachedHost
+	pending map[string]*pendingHost
 }
 
 func NewPublicURLPolicy() *PublicURLPolicy {
@@ -53,6 +80,7 @@ func newPublicURLPolicy(resolver ipResolver, cacheTTL time.Duration) *PublicURLP
 		resolver: resolver,
 		cacheTTL: cacheTTL,
 		cache:    make(map[string]cachedHost),
+		pending:  make(map[string]*pendingHost),
 	}
 }
 
@@ -85,7 +113,7 @@ func ValidatePublicURL(raw string) (*url.URL, error) {
 func (p *PublicURLPolicy) Validate(ctx context.Context, raw string) (*url.URL, error) {
 	u, err := ValidatePublicURL(raw)
 	if err != nil {
-		return nil, err
+		return nil, &PolicyError{Code: "url_rejected", err: err}
 	}
 	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
 	if net.ParseIP(host) != nil {
@@ -100,25 +128,54 @@ func (p *PublicURLPolicy) Validate(ctx context.Context, raw string) (*url.URL, e
 		return u, nil
 	}
 	delete(p.cache, host)
+	if pending := p.pending[host]; pending != nil {
+		p.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, dnsPolicyError(host, ctx.Err())
+		case <-pending.done:
+			if pending.err != nil {
+				return nil, pending.err
+			}
+			return u, nil
+		}
+	}
+	pending := &pendingHost{done: make(chan struct{})}
+	p.pending[host] = pending
 	p.mu.Unlock()
 
+	err = p.validateHost(ctx, host)
+	p.mu.Lock()
+	if err == nil {
+		// Start the short TTL only after resolution has completed. Slow DNS
+		// must not consume the entire cache lifetime before it is populated.
+		p.cache[host] = cachedHost{expiresAt: time.Now().Add(p.cacheTTL)}
+	}
+	pending.err = err
+	delete(p.pending, host)
+	close(pending.done)
+	p.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (p *PublicURLPolicy) validateHost(ctx context.Context, host string) error {
 	addresses, err := p.resolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %s: %w", host, err)
+		return dnsPolicyError(host, err)
 	}
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("resolve %s: no addresses returned", host)
+		return &PolicyError{Code: "dns_empty", err: fmt.Errorf("resolve %s: no addresses returned", host)}
 	}
 	for _, address := range addresses {
 		if blockedIP(address.IP) {
-			return nil, fmt.Errorf("%s resolves to a private, local, or reserved address", host)
+			return &PolicyError{Code: "non_public_ip", err: fmt.Errorf("%s resolves to a private, local, or reserved address", host)}
 		}
 	}
 
-	p.mu.Lock()
-	p.cache[host] = cachedHost{expiresAt: now.Add(p.cacheTTL)}
-	p.mu.Unlock()
-	return u, nil
+	return nil
 }
 
 func blockedIP(ip net.IP) bool {

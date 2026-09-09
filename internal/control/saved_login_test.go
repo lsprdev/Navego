@@ -135,6 +135,9 @@ func TestExecuteSavedLoginBrokersOwnerCredentialWithoutLeakingIt(t *testing.T) {
 	if result.IsError || usedBrowserID != browserRecord.Id {
 		t.Fatalf("unexpected result: browser=%q result=%#v", usedBrowserID, result)
 	}
+	if fields, ok := result.StructuredContent.(map[string]any); !ok || fields["status"] != "submitted_unverified" {
+		t.Fatalf("submission must not imply authentication: %#v", result.StructuredContent)
+	}
 	if string(committedUsername) != "student-user" || string(committedPassword) != "vault-password" {
 		t.Fatal("control plane did not broker the saved credential")
 	}

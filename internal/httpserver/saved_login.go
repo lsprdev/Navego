@@ -113,6 +113,10 @@ func internalSavedLoginCommitHandler(controller browser.Controller) http.Handler
 			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 			return
 		}
+		if err := browser.SavedLoginPageError(snapshot); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusOK, InternalSavedLoginCommitResponse{Snapshot: snapshot})
 	}
 }

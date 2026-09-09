@@ -518,7 +518,10 @@ func New(
 			if err != nil {
 				return nil, browser.Snapshot{}, err
 			}
-			return textResult("Login salvo confirmado e enviado uma vez. Nenhuma credencial foi incluída nesta resposta.\n\n" + formatSnapshot(snapshot)), snapshot, nil
+			if err := browser.SavedLoginPageError(snapshot); err != nil {
+				return nil, browser.Snapshot{}, err
+			}
+			return textResult("Formulário de login salvo enviado uma vez; autenticação ainda não confirmada. Verifique a página resultante antes de informar sucesso e não reenvie as credenciais automaticamente. Nenhuma credencial foi incluída nesta resposta.\n\n" + formatSnapshot(snapshot)), snapshot, nil
 		})
 
 	mcp.AddTool(server, tools.tool("browser_resume_after_human", "Resume after human login", "Idempotently hand control back to automation and return a fresh snapshot. Call automatically when useful after human authentication; do not require the user to type a special phrase first.", writeClosedWorld(true)),

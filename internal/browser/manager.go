@@ -22,7 +22,7 @@ import (
 
 const (
 	refAttribute         = "data-navego-ref"
-	requestPolicyTimeout = 3 * time.Second
+	requestPolicyTimeout = 10 * time.Second
 	maxManagedTabs       = 12
 )
 
@@ -1027,6 +1027,7 @@ func tabExists(tabs TabsResult, tabID string) bool {
 }
 
 func (m *Manager) handlePausedRequest(browserContext context.Context, paused *fetch.EventRequestPaused) {
+	started := time.Now()
 	policyContext, policyCancel := context.WithTimeout(browserContext, requestPolicyTimeout)
 	_, policyErr := m.urlPolicy.Validate(policyContext, paused.Request.URL)
 	policyCancel()
@@ -1037,6 +1038,7 @@ func (m *Manager) handlePausedRequest(browserContext context.Context, paused *fe
 	}
 	executorContext := cdp.WithExecutor(browserContext, chromedpContext.Target)
 	if policyErr != nil {
+		logBlockedRequest(paused, chromedpContext.Target.TargetID, policyErr, time.Since(started))
 		_ = fetch.FailRequest(paused.RequestID, network.ErrorReasonBlockedByClient).Do(executorContext)
 		return
 	}
