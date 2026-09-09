@@ -33,6 +33,13 @@ export type ActivityEvent = {
   browser_id?: string;
   browser_name?: string;
   created_at: string;
+  diagnostics?: {
+    error?: string;
+    error_code?: string;
+    kind?: string;
+    stage?: string;
+    duration_ms?: number;
+  };
 };
 
 export type SavedCredential = {

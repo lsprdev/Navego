@@ -30,6 +30,7 @@ import {
   type AccountView,
 } from "@/components/dashboard/account-dialog";
 import { BrowserCard } from "@/components/dashboard/browser-card";
+import { ActivityDetails } from "@/components/dashboard/activity-details";
 import {
   BrowserFormDialog,
   DeleteBrowserDialog,
@@ -842,7 +843,7 @@ function ActivitySection({
                       {event.browser_name || event.browser_id || "Navegador removido"}
                     </p>
                   </div>
-                  <div className="col-start-2 flex items-center gap-2 sm:col-start-auto sm:justify-end">
+                  <div className="col-start-2 flex flex-wrap items-center gap-2 sm:col-start-auto sm:justify-end">
                     <Badge
                       variant="outline"
                       className={
@@ -851,12 +852,13 @@ function ActivitySection({
                           : "border-destructive/25 text-destructive"
                       }
                     >
-                      {event.result === "success" ? "Concluído" : "Falhou"}
+                      {event.result === "success" ? "Concluído" : event.result === "denied" ? "Negado" : "Falhou"}
                     </Badge>
                     <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
                       <Clock3Icon className="size-3" />
                       {formatActivityDate(event.created_at)}
                     </span>
+                    <ActivityDetails event={event} />
                   </div>
                 </div>
               );

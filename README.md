@@ -122,6 +122,28 @@ antes de salvar qualquer credencial real ou fazer deploy.
 
 ## Validar
 
+### Diagnosticar falhas na atividade
+
+Em **Atividade → Ver detalhes**, cada evento mostra a mensagem de erro disponível,
+a etapa, a duração da chamada no control plane e o código retornado pela ferramenta
+(quando houver). **Copiar detalhes** copia o diagnóstico e o ID do evento para
+correlacionar com os logs do servidor. A categoria é inferida da mensagem: timeout
+de DNS, tempo limite excedido, cancelamento, transporte ou erro da operação.
+Ela não comprova sozinha a causa raiz nem identifica quem cancelou a conexão.
+
+As chamadas MCP ao worker passam a registrar também erros retornados com
+`isError=true`, e não apenas erros de transporte. Não são gravados os argumentos
+nem as respostas bem-sucedidas das ferramentas; mensagens têm URLs e padrões de
+credenciais ocultados e tamanho limitado. O endpoint continua restrito ao dono dos
+eventos e não entrega o restante dos metadados de auditoria.
+
+Eventos antigos só exibem os detalhes que já foram salvos; não há reconstrução
+retroativa. Faça rebuild/redeploy de **control** e **web** para habilitar o recurso.
+Não é necessário atualizar o conector MCP ou recriar os Chromiums. O recurso não
+altera timeouts nem repete ações automaticamente.
+
+### Testes
+
 ```sh
 go test ./...
 go vet ./...

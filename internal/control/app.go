@@ -199,12 +199,13 @@ type agentBrowser struct {
 }
 
 type activityResponse struct {
-	ID          string `json:"id"`
-	Event       string `json:"event"`
-	Result      string `json:"result"`
-	BrowserID   string `json:"browser_id,omitempty"`
-	BrowserName string `json:"browser_name,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	ID          string               `json:"id"`
+	Event       string               `json:"event"`
+	Result      string               `json:"result"`
+	BrowserID   string               `json:"browser_id,omitempty"`
+	BrowserName string               `json:"browser_name,omitempty"`
+	CreatedAt   string               `json:"created_at"`
+	Diagnostics *activityDiagnostics `json:"diagnostics,omitempty"`
 }
 
 func listActivity(event *core.RequestEvent) error {
@@ -238,6 +239,7 @@ func listActivity(event *core.RequestEvent) error {
 			BrowserID:   browserID,
 			BrowserName: browserName,
 			CreatedAt:   record.GetDateTime("created").String(),
+			Diagnostics: readActivityDiagnostics(record),
 		})
 	}
 	return event.JSON(http.StatusOK, result)

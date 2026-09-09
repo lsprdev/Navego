@@ -75,12 +75,9 @@ func (s *multiBrowserMCP) addSavedLoginTool() {
 		if request == nil || request.Params == nil || json.Unmarshal(request.Params.Arguments, &input) != nil {
 			return toolError("Informe os refs atuais dos campos de usuário, senha e do botão de login."), nil
 		}
+		started := time.Now()
 		result, browserID := s.executeSavedLogin(ctx, info.UserID, input)
-		status := "success"
-		if result.IsError {
-			status = "error"
-		}
-		writeAudit(s.app, info.UserID, browserID, "mcp.browser_login_with_saved_access", status, nil)
+		s.auditToolCall(info.UserID, browserID, "browser_login_with_saved_access", "saved_login", started, result, nil)
 		return result, nil
 	})
 }

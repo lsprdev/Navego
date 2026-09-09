@@ -192,16 +192,19 @@ func (s *multiBrowserMCP) addManagementTools() {
 	})
 }
 
-func (s *multiBrowserMCP) callWorkerTool(ctx context.Context, request *mcp.CallToolRequest, toolName string) (*mcp.CallToolResult, error) {
+func (s *multiBrowserMCP) callWorkerTool(ctx context.Context, request *mcp.CallToolRequest, toolName string) (result *mcp.CallToolResult, callErr error) {
 	required := mcpserver.RequiredScopes(toolName)
 	info, unauthorized := authorizeCentralTool(ctx, request, required, s.resourceMetaURL)
 	if unauthorized != nil {
 		return unauthorized, nil
 	}
+	started := time.Now()
+	browserID, stage := "", "selection"
+	arguments := map[string]any{}
+	defer func() { s.auditToolCall(info.UserID, browserID, toolName, stage, started, result, arguments) }()
 	if request == nil || request.Params == nil {
 		return toolError("Chamada MCP sem parâmetros."), nil
 	}
-	arguments := map[string]any{}
 	if len(request.Params.Arguments) > 0 {
 		if err := json.Unmarshal(request.Params.Arguments, &arguments); err != nil {
 			return toolError("Argumentos da ferramenta são inválidos."), nil
@@ -213,22 +216,28 @@ func (s *multiBrowserMCP) callWorkerTool(ctx context.Context, request *mcp.CallT
 	if err != nil {
 		return toolError(err.Error()), nil
 	}
+	browserID = browser.Id
+	stage = "worker_endpoint"
 	endpoint, err := validatedWorkerEndpoint(browser.GetString("worker_endpoint"))
 	if err != nil {
 		return toolError("O worker deste Chromium ainda não está disponível."), nil
 	}
-	result, err := s.forwardWorkerCall(ctx, endpoint, toolName, arguments, request)
+	stage = "transport"
+	result, err = s.forwardWorkerCall(ctx, endpoint, toolName, arguments, request)
 	if err != nil {
-		writeAudit(s.app, info.UserID, browser.Id, "mcp."+toolName, "error", map[string]any{"error": truncate(err.Error(), 500)})
 		return toolError("O Chromium não respondeu à ferramenta: " + err.Error()), nil
 	}
+	if result == nil {
+		return toolError("O worker retornou uma resposta vazia."), nil
+	}
+	stage = "worker"
 	if toolName == "browser_request_human_login" && !result.IsError {
+		stage = "human_access"
 		if err := s.replaceHumanLoginURL(result, browser, info.UserID); err != nil {
 			return toolError("Não foi possível criar o acesso humano temporário: " + err.Error()), nil
 		}
 	}
 	result.Content = append([]mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Chromium usado: %s (%s).", browser.GetString("name"), browser.Id)}}, result.Content...)
-	writeAudit(s.app, info.UserID, browser.Id, "mcp."+toolName, map[bool]string{true: "error", false: "success"}[result.IsError], nil)
 	return result, nil
 }
 
