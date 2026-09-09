@@ -108,8 +108,13 @@ O controle humano não é uma trava permanente: a próxima ferramenta de navegad
 retoma a automação automaticamente. Para posts, mensagens e formulários, um
 pedido imperativo que já informe conteúdo e destino vale como autorização da
 ação exata; o worker ainda executa `prepare -> commit` no mesmo turno para
-validar página, campos e impedir replay. Compras, pagamentos, exclusões e logout
-continuam exigindo confirmação final separada.
+validar página, campos e impedir replay. Um pedido claro de logout, inclusive
+como etapa de uma skill escolhida pelo usuário para a tarefa atual, também
+autoriza `prepare -> commit` sem outra confirmação. Isso vale apenas para sair
+da sessão atual do site indicado, não excluir a conta, sair de todos os
+dispositivos ou descartar trabalho não salvo. O agente deve verificar o logout
+antes de informar sucesso; fechar a aba não equivale a encerrar a sessão.
+Compras, pagamentos e exclusões continuam exigindo confirmação final separada.
 
 O domínio precisa ser exatamente o domínio de desenvolvimento exibido no painel
 da mesma conta do `NGROK_AUTHTOKEN`; não escolha ou reutilize um subdomínio

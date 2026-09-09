@@ -404,6 +404,9 @@ func TestApprovalCanCommitOnlyOnce(t *testing.T) {
 	if !strings.Contains(prepareMessage, "mesmo turno") || strings.Contains(prepareMessage, "Aguarde confirmação explícita") {
 		t.Fatalf("prepare result does not allow current-request authorization: %q", prepareMessage)
 	}
+	if !strings.Contains(prepareMessage, "Para logout") || !strings.Contains(prepareMessage, "skill escolhida pelo usuário") {
+		t.Fatalf("prepare result omits authorized logout policy: %q", prepareMessage)
+	}
 	params := &mcp.CallToolParams{Name: "browser_commit_action", Arguments: map[string]any{"approval_id": id}}
 	committed, err := client.CallTool(t.Context(), params)
 	if err != nil || committed.IsError {

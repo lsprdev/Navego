@@ -447,7 +447,7 @@ func (m *Manager) Click(ctx context.Context, ref string) (Snapshot, error) {
 	}
 	if info.element.Sensitive {
 		return Snapshot{}, fmt.Errorf(
-			"%s %q may cause an external effect; use browser_prepare_action and wait for explicit confirmation",
+			"%s %q may cause an external effect; use browser_prepare_action and follow its authorization rules before browser_commit_action",
 			info.element.Role,
 			info.element.Name,
 		)
