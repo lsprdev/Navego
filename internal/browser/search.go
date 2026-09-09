@@ -12,7 +12,7 @@ const (
 	defaultFindLimit = 10
 	maxFindLimit     = 50
 	maxQueryRunes    = 200
-	defaultWait      = 10 * time.Second
+	defaultWait      = 30 * time.Second
 	maxWait          = 30 * time.Second
 	matchContext     = 100
 )

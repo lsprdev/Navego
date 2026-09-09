@@ -27,8 +27,12 @@ func TestFindSnapshotReturnsRefsAndCompactExcerpts(t *testing.T) {
 
 func TestNormalizeWaitCondition(t *testing.T) {
 	condition, err := NormalizeWaitCondition(WaitCondition{Text: "ready"})
-	if err != nil || condition.Timeout != 10*time.Second {
+	if err != nil || condition.Timeout != 30*time.Second {
 		t.Fatalf("condition=%+v err=%v", condition, err)
+	}
+	condition, err = NormalizeWaitCondition(WaitCondition{Text: "ready", Timeout: 10 * time.Second})
+	if err != nil || condition.Timeout != 10*time.Second {
+		t.Fatalf("explicit timeout not preserved: condition=%+v err=%v", condition, err)
 	}
 	if _, err := NormalizeWaitCondition(WaitCondition{Text: "ready", URLContains: "/done"}); err == nil {
 		t.Fatal("expected mutually exclusive wait condition error")

@@ -66,7 +66,7 @@ type FindInput struct {
 type WaitInput struct {
 	Text        string `json:"text,omitempty" jsonschema:"Text that must appear in the page; mutually exclusive with url_contains"`
 	URLContains string `json:"url_contains,omitempty" jsonschema:"Substring that must appear in the current URL; mutually exclusive with text"`
-	TimeoutMS   int    `json:"timeout_ms,omitempty" jsonschema:"Wait timeout in milliseconds; defaults to 10000 and cannot exceed 30000"`
+	TimeoutMS   int    `json:"timeout_ms,omitempty" jsonschema:"Wait timeout in milliseconds; defaults to 30000 and cannot exceed 30000"`
 }
 
 type NewTabInput struct {
